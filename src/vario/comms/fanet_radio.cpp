@@ -14,20 +14,22 @@
 #include "utils/lock_guard.h"
 
 // Initial detection of Fanet module (hw3.2.6+)
-bool detectFanet() {
+bool FanetRadio::detectFanet() {
+#ifdef FANET_CAPABLE
   // Auto-Detect FANET LoRa module
   pinMode(SX1262_BUSY, INPUT_PULLUP);  // chip select for the FANET module (SX1262_NSS pin)
-  pinMode(LED_PIN, OUTPUT);
   uint32_t counter = 0;
   bool fanetReady = false;
   while (counter < 5000) {
     counter += 100;
     delay(100);
     fanetReady = !digitalRead(SX1262_BUSY);  // if busy is low, we're ready
-    digitalWrite(LED_PIN, fanetReady);       // turn on LED if busy is high
     if (fanetReady) break;                   // if we're ready, break out of the loop
   }
   return fanetReady;
+#endif
+  // If the module is not present, return false
+  return false;  // Module does not support Fanet
 }
 
 // Static initializers
@@ -294,9 +296,13 @@ void FanetRadio::setup(etl::imessage_bus* bus) {
 }
 
 void FanetRadio::begin(const FanetRadioRegion& region) {
-#ifndef HAS_FANET
+#ifndef FANET_CAPABLE
   return;  // Model does not support Fanet
 #endif
+
+  if (state == FanetRadioState::UNINSTALLED) {
+    return;  // Short circuit if the radio module is not installed
+  }
 
   // Short circuit above taking any locks out (avoid deadlocks)
   if (region == FanetRadioRegion::OFF) {
@@ -358,9 +364,14 @@ void FanetRadio::begin(const FanetRadioRegion& region) {
 }
 
 void FanetRadio::end() {
-#ifndef HAS_FANET
+#ifndef FANET_CAPABLE
   return;  // Model does not support Fanet
 #endif
+
+  // Short circuit unloading if the radio module is missing.
+  if (state == FanetRadioState::UNINSTALLED) {
+    return;
+  }
 
   SpiLockGuard spiLock;
   radio->sleep(false);
