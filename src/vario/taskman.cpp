@@ -195,6 +195,7 @@ void TaskManager::updateWhileCharging() {
                                       // ECO_MODE in
                                       // the parent if() statement
         esp_light_sleep_start();
+        Serial.print("sleeping!");
       } else {
         Serial.print("microsNow:    ");
         Serial.println(microsNow);

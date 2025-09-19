@@ -15,6 +15,7 @@
 enum developer_menu_items {
   cursor_developer_back,
   cursor_developer_fanetReTx,
+  cursor_developer_ecoMode,
   cursor_developer_startupStart,
   cursor_developer_startupDisconnect,
   cursor_developer_busLogControl
@@ -31,7 +32,7 @@ void DeveloperMenuPage::draw() {
     uint8_t y_spacing = 16;
     uint8_t setting_name_x = 2;
     uint8_t setting_choice_x = 76;
-    uint8_t menu_items_y[] = {190, 35, 135, 150, 170};
+    uint8_t menu_items_y[] = {190, 35, 50, 135, 150, 170};
 
     // first draw cursor selection box
     uint8_t largerChoiceSize = 0;
@@ -61,6 +62,13 @@ void DeveloperMenuPage::draw() {
             u8g2.print(char(125));
           else
             u8g2.print(char(123));
+          break;
+        case cursor_developer_ecoMode:
+          if (settings.system_ecoMode)
+            u8g2.print(char(125));
+          else
+            u8g2.print(char(123));
+          break;
           break;
         case cursor_developer_startupStart:
           if (settings.dev_startLogAtBoot)
@@ -95,6 +103,10 @@ void DeveloperMenuPage::setting_change(Button dir, ButtonEvent state, uint8_t co
   switch (cursor_position) {
     case cursor_developer_fanetReTx: {
       if (state == ButtonEvent::CLICKED) settings.toggleBoolOnOff(&settings.dev_fanetFwd);
+      break;
+    }
+    case cursor_developer_ecoMode: {
+      if (state == ButtonEvent::CLICKED) settings.toggleBoolOnOff(&settings.system_ecoMode);
       break;
     }
     case cursor_developer_startupStart: {
