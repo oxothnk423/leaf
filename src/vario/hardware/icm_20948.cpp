@@ -7,6 +7,7 @@
 #include "hardware/icm_20948.h"
 
 #include "dispatch/message_types.h"
+#include "ui/display/pages/dialogs/page_imu_diagnostic_alert.h"
 
 #define DEBUG_IMU 0
 
@@ -15,19 +16,17 @@
 #define AD0_VAL 0  // I2C address bit
 
 namespace {
-  // The DMP runs at 225Hz. The task manager polls the IMU at 20Hz, so keep the FIFO
-  // production rate close to the consumer rate and drain bursts when the main loop is delayed.
-  constexpr int DMP_ODR_INTERVAL_20HZ = 10;  // 225 / (10 + 1) = 20.45Hz
-  constexpr uint8_t MAX_DMP_PACKETS_PER_UPDATE = 8;
-
   bool invalid(double value, double min, double max) {
     return isnan(value) || isinf(value) || value < min || value > max;
   }
 
-  void publishComment(etl::imessage_bus* bus, const char* msg) {
+  void publishComment(etl::imessage_bus* bus, const char* msg, const char* trigger = nullptr) {
     Serial.println(msg);
     if (bus) {
       bus->receive(CommentMessage(msg));
+    }
+    if (trigger) {
+      PageIMUDiagnosticAlert::show(trigger, msg);
     }
   }
 }  // namespace
@@ -63,9 +62,9 @@ void ICM20948::init() {
   success &= (IMU_.enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
   success &= (IMU_.enableDMPSensor(INV_ICM20948_SENSOR_ACCELEROMETER) == ICM_20948_Stat_Ok);
 
-  // Configuring DMP to output data at multiple ODRs.
-  success &= (IMU_.setDMPODRrate(DMP_ODR_Reg_Quat9, DMP_ODR_INTERVAL_20HZ) == ICM_20948_Stat_Ok);
-  success &= (IMU_.setDMPODRrate(DMP_ODR_Reg_Accel, DMP_ODR_INTERVAL_20HZ) == ICM_20948_Stat_Ok);
+  // Configuring DMP to output data at multiple ODRs:
+  success &= (IMU_.setDMPODRrate(DMP_ODR_Reg_Quat9, 2) == ICM_20948_Stat_Ok);  // Set to the maximum
+  success &= (IMU_.setDMPODRrate(DMP_ODR_Reg_Accel, 2) == ICM_20948_Stat_Ok);  // Set to the maximum
 
   // Enable the FIFO
   success &= (IMU_.enableFIFO() == ICM_20948_Stat_Ok);
@@ -88,33 +87,21 @@ void ICM20948::init() {
 }
 
 void ICM20948::update() {
+  icm_20948_DMP_data_t data;
   etl::imessage_bus* bus = bus_;
-  MotionUpdate latest(millis());
-  bool moreData = false;
+  IMU_.readDMPdataFromFIFO(&data);  // Keep original single-packet consumption for diagnosis
 
-  for (uint8_t packet = 0; packet < MAX_DMP_PACKETS_PER_UPDATE; ++packet) {
-    icm_20948_DMP_data_t data;
-    IMU_.readDMPdataFromFIFO(&data);
+  if (IMU_.status == ICM_20948_Stat_FIFOIncompleteData) {
+    publishComment(bus, "ICM20948 FIFO incomplete packet", "FIFO incomplete");
+  }
 
-    if (IMU_.status == ICM_20948_Stat_FIFONoDataAvail) {
-      moreData = false;
-      break;
-    }
+  if (IMU_.status == ICM_20948_Stat_FIFOMoreDataAvail) {
+    publishComment(bus, "ICM20948 FIFO backlog after one packet read", "FIFO backlog");
+  }
 
-    if (IMU_.status == ICM_20948_Stat_FIFOIncompleteData) {
-      publishComment(bus, "ICM20948 FIFO incomplete packet; resetting FIFO");
-      IMU_.resetFIFO();
-      return;
-    }
-
-    if ((IMU_.status != ICM_20948_Stat_Ok) && (IMU_.status != ICM_20948_Stat_FIFOMoreDataAvail)) {
-      char msg[100];
-      snprintf(msg, sizeof(msg), "ICM20948 DMP FIFO read failed: %s", IMU_.statusString());
-      publishComment(bus, msg);
-      return;
-    }
-
-    moreData = (IMU_.status == ICM_20948_Stat_FIFOMoreDataAvail);
+  if ((IMU_.status == ICM_20948_Stat_Ok) ||
+      (IMU_.status == ICM_20948_Stat_FIFOMoreDataAvail))  // Was valid data available?
+  {
     MotionUpdate update(millis());
     if ((data.header & DMP_header_bitmap_Quat9) > 0) {
       // Scale to +/- 1
@@ -130,7 +117,7 @@ void ICM20948::update() {
       update.az = ((double)data.Raw_Accel.Data.Z) / 8192.0;
       update.hasAcceleration = true;
     }
-    if (update.hasOrientation || update.hasAcceleration) {
+    if ((update.hasOrientation || update.hasAcceleration) && bus) {
       // Invalidate insane orientation data
       if (update.hasOrientation) {
         if (invalid(update.qx, -1.1, 1.1) || invalid(update.qy, -1.1, 1.1) ||
@@ -158,34 +145,10 @@ void ICM20948::update() {
         }
       }
 
-      // Keep only the newest valid values from the FIFO burst.
-      if (update.hasOrientation) {
-        latest.qx = update.qx;
-        latest.qy = update.qy;
-        latest.qz = update.qz;
-        latest.hasOrientation = true;
-        latest.t = update.t;
-      }
-      if (update.hasAcceleration) {
-        latest.ax = update.ax;
-        latest.ay = update.ay;
-        latest.az = update.az;
-        latest.hasAcceleration = true;
-        latest.t = update.t;
+      // Only dispatch to bus if sanity checks pass
+      if (update.hasOrientation || update.hasAcceleration) {
+        bus->receive(update);
       }
     }
-
-    if (!moreData) {
-      break;
-    }
-  }
-
-  if (moreData) {
-    publishComment(bus, "ICM20948 FIFO backlog exceeded drain limit; resetting FIFO");
-    IMU_.resetFIFO();
-  }
-
-  if (latest.hasOrientation && latest.hasAcceleration && bus) {
-    bus->receive(latest);
   }
 }

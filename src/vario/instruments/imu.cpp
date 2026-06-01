@@ -6,6 +6,7 @@
 #include "logging/telemetry.h"
 #include "math/kalman.h"
 #include "storage/sd_card.h"
+#include "ui/display/pages/dialogs/page_imu_diagnostic_alert.h"
 #include "utils/const_math.h"
 
 // Singleton IMU instance for device
@@ -26,17 +27,19 @@ namespace {
   constexpr double AFTER_SECONDS = 5.0;           // ...after this number of seconds
   constexpr double K_UPDATE = constexpr_log(1 - NEW_MEASUREMENT_WEIGHT) / AFTER_SECONDS;
 
-  constexpr uint8_t IMU_SAMPLE_RATE = 20;  // Hz
+  constexpr uint8_t IMU_SAMPLE_RATE = 40;  // Hz
   constexpr double GRAVITY_INIT_S = 3.0;   // Time to take to estimate the initial gravity magnitude
   // samples to bypass at startup while gravity is estimated
   constexpr uint32_t GRAVITY_INIT_SAMPLES = IMU_SAMPLE_RATE * GRAVITY_INIT_S;
 
-  constexpr double MIN_GRAVITY_G = 0.5;
-  constexpr double MAX_GRAVITY_G = 1.5;
   constexpr double GRAVITY_UPDATE_ACCEL_TOLERANCE_G = 0.12;
   constexpr double GRAVITY_UPDATE_VERTICAL_TOLERANCE_G = 0.25;
+  constexpr double GRAVITY_UNSTABLE_DRIFT_ALERT_G = 0.5;
+  constexpr double QUATERNION_ROTATION_DELTA_ALERT_G = 0.05;
 
-  bool normalizeQuaternion(double* qw, double* qx, double* qy, double* qz) {
+  double unstableGravityDriftG = 0;
+
+  bool normalizedQuaternion(double* qw, double* qx, double* qy, double* qz) {
     double qVecMagnitude2 = (*qx * *qx) + (*qy * *qy) + (*qz * *qz);
     if (isnan(qVecMagnitude2) || isinf(qVecMagnitude2) || qVecMagnitude2 > 1.05) {
       return false;
@@ -60,10 +63,13 @@ namespace {
     return true;
   }
 
-  bool plausibleGravity(double gravity) {
-    double magnitude = fabs(gravity);
-    return !isnan(gravity) && !isinf(gravity) && magnitude >= MIN_GRAVITY_G &&
-           magnitude <= MAX_GRAVITY_G;
+  void reportIMUDiagnostic(etl::imessage_bus* bus, const char* trigger, const String& detail) {
+    String msg = String("IMU diagnostic: ") + trigger + "\n" + detail;
+    Serial.println(msg);
+    if (bus) {
+      bus->receive(CommentMessage(msg));
+    }
+    PageIMUDiagnosticAlert::show(trigger, detail);
   }
 }  // namespace
 
@@ -100,14 +106,10 @@ IMU::IMU()
       gravityInitCount_(GRAVITY_INIT_SAMPLES) {}
 
 void IMU::processMotion(const MotionUpdate& m) {
-  double qw = 0;
-  double qx = m.qx;
-  double qy = m.qy;
-  double qz = m.qz;
-  if (!normalizeQuaternion(&qw, &qx, &qy, &qz)) {
-    validAccelVert_ = false;
-    return;
-  }
+  // Scale to +/- 1
+  double magnitude = ((m.qx * m.qx) + (m.qy * m.qy) + (m.qz * m.qz));
+  if (magnitude >= 1.0) magnitude = 1.0;
+  double qw = sqrt(1.0 - magnitude);
 
   bool needComma = false;
   bool needNewline = false;
@@ -116,11 +118,11 @@ void IMU::processMotion(const MotionUpdate& m) {
   Serial.print(F("Qw:"));
   printFloat(qw);
   Serial.print(F(",Qx:"));
-  printFloat(qx);
+  printFloat(m.qx);
   Serial.print(F(",Qy:"));
-  printFloat(qy);
+  printFloat(m.qy);
   Serial.print(F(",Qz:"));
-  printFloat(qz);
+  printFloat(m.qz);
   needComma = true;
   needNewline = true;
 #endif
@@ -143,11 +145,29 @@ void IMU::processMotion(const MotionUpdate& m) {
 #endif
 
   double awx, awy, awz;
-  rotateByQuaternion(m.ax, m.ay, m.az, qw, qx, qy, qz, &awx, &awy, &awz);
+  rotateByQuaternion(m.ax, m.ay, m.az, qw, m.qx, m.qy, m.qz, &awx, &awy, &awz);
+  double qwn = 0;
+  double qxn = m.qx;
+  double qyn = m.qy;
+  double qzn = m.qz;
+  if (!normalizedQuaternion(&qwn, &qxn, &qyn, &qzn)) {
+    reportIMUDiagnostic(bus_, "Quaternion invalid",
+                        String("q=(") + String(m.qx, 5) + "," + String(m.qy, 5) + "," +
+                            String(m.qz, 5) + ")\nqvec2=" +
+                            String((m.qx * m.qx) + (m.qy * m.qy) + (m.qz * m.qz), 5));
+  } else {
+    double awxn, awyn, awzn;
+    rotateByQuaternion(m.ax, m.ay, m.az, qwn, qxn, qyn, qzn, &awxn, &awyn, &awzn);
+    if (!isnan(awzn) && !isinf(awzn) && fabs(awzn - awz) > QUATERNION_ROTATION_DELTA_ALERT_G) {
+      reportIMUDiagnostic(bus_, "Quaternion normalization",
+                          String("rawWz=") + String(awz, 5) + "\nnormWz=" +
+                              String(awzn, 5) + "\ndelta=" + String(awzn - awz, 5));
+    }
+  }
   if (isinf(awz) || isnan(awz)) {
     fatalErrorInfo(
         "m.ax=%g, m.ay=%g, m.az=%g, qw=%g, m.qx=%g, m.qy=%g, m.qz=%g, awx=%g, awy=%g, awz=%g", m.ax,
-        m.ay, m.az, qw, qx, qy, qz, awx, awy, awz);
+        m.ay, m.az, qw, m.qx, m.qy, m.qz, awx, awy, awz);
     fatalError("IMU awz was invalid");
   }
 
@@ -181,11 +201,6 @@ void IMU::processMotion(const MotionUpdate& m) {
     gravity_ += awz;
     if (--gravityInitCount_ == 0) {
       gravity_ /= GRAVITY_INIT_SAMPLES;
-      if (!plausibleGravity(gravity_)) {
-        gravity_ = 0;
-        gravityInitCount_ = GRAVITY_INIT_SAMPLES;
-        validAccelVert_ = false;
-      }
     }
   }
   if (gravityInitCount_ == 0) {
@@ -195,18 +210,26 @@ void IMU::processMotion(const MotionUpdate& m) {
     validAccelVert_ = true;
 
     // Slowly update estimate of gravity
+    double dt = ((double)m.t - tLastGravityUpdate_) * 0.001;
+    double f = exp(K_UPDATE * dt);
+    double nextGravity = gravity_ * f + awz * (1 - f);
+
     double accelMagnitudeDelta = fabs(accelTot_ - fabs(gravity_));
-    if (accelMagnitudeDelta <= GRAVITY_UPDATE_ACCEL_TOLERANCE_G &&
-        fabs(accelVert_) <= GRAVITY_UPDATE_VERTICAL_TOLERANCE_G) {
-      double dt = ((double)m.t - tLastGravityUpdate_) * 0.001;
-      if (dt > 0.0 && dt < 1.0) {
-        double f = exp(K_UPDATE * dt);
-        double nextGravity = gravity_ * f + awz * (1 - f);
-        if (plausibleGravity(nextGravity)) {
-          gravity_ = nextGravity;
-        }
+    if (accelMagnitudeDelta > GRAVITY_UPDATE_ACCEL_TOLERANCE_G ||
+        fabs(accelVert_) > GRAVITY_UPDATE_VERTICAL_TOLERANCE_G) {
+      unstableGravityDriftG += fabs(nextGravity - gravity_);
+      if (unstableGravityDriftG > GRAVITY_UNSTABLE_DRIFT_ALERT_G) {
+        reportIMUDiagnostic(bus_, "Gravity updated while moving",
+                            String("unstable drift=") + String(unstableGravityDriftG, 5) +
+                                "g\n|accel|-|g|=" + String(accelMagnitudeDelta, 5) +
+                                "\nvertAccelG=" + String(accelVert_, 5) + "\ng=" +
+                                String(gravity_, 5) + " awz=" + String(awz, 5));
       }
+    } else {
+      unstableGravityDriftG *= 0.95;
     }
+
+    gravity_ = nextGravity;
   }
 
 #ifdef SHOW_VERTICAL_ACCEL
