@@ -28,6 +28,8 @@ namespace {
   SelfTestMode last_self_test_mode = SelfTestMode::None;
   bool interactive_self_test_pending = false;
   uint32_t interactive_self_test_start_ms = 0;
+  bool self_test_reboot_pending = false;
+  uint32_t self_test_reboot_start_ms = 0;
 
   const char* selfTestModeName(SelfTestMode mode) {
     switch (mode) {
@@ -72,6 +74,11 @@ namespace {
     json += (running || interactive_self_test_pending) ? "true" : "false";
     json += ",\"pending\":";
     json += interactive_self_test_pending ? "true" : "false";
+    json += ",\"rebooting\":";
+    json += selfTest.sdCardFormatRebootPending() ? "true" : "false";
+    json += ",\"reboot_reason\":\"";
+    json += selfTest.sdCardFormatRebootPending() ? "sd_card_formatted" : "";
+    json += "\"";
     json += ",\"mode\":\"";
     json += selfTestModeName(last_self_test_mode);
     json += "\",\"status\":\"";
@@ -93,6 +100,15 @@ namespace {
     appendSelfTestResult(json, "all_tests", selfTest.results.allTests, false);
     json += "}}";
     return json;
+  }
+
+  void sendSelfTestSnapshot(bool allowFormatReboot) {
+    server.send(200, "application/json", selfTestSnapshotJson());
+    if (allowFormatReboot && selfTest.sdCardFormatRebootPending() && !self_test_reboot_pending) {
+      self_test_reboot_pending = true;
+      self_test_reboot_start_ms = millis();
+      Serial.println("* SELF TEST * SD CARD * Format complete; rebooting before restarting tests");
+    }
   }
 
   String latestSelfTestDetailsFileName() {
@@ -214,6 +230,14 @@ namespace {
     if (elapsed_ms >= SELF_TEST_POWER_ON_DELAY_MS) {
       beginInteractiveSelfTest();
     }
+  }
+
+  void updatePendingSelfTestReboot() {
+    if (!self_test_reboot_pending) return;
+    if (millis() - self_test_reboot_start_ms < 250) return;
+
+    delay(50);
+    ESP.restart();
   }
 
   bool isHexDigit(char c) {
@@ -473,7 +497,7 @@ void webserver_setup() {
 
   server.on("/self-test/interactive", HTTP_POST, []() {
     requestInteractiveSelfTest();
-    server.send(200, "application/json", selfTestSnapshotJson());
+    sendSelfTestSnapshot(false);
   });
 
   server.on("/self-test/details", HTTP_GET, []() { sendLatestSelfTestDetails(); });
@@ -481,7 +505,7 @@ void webserver_setup() {
   server.on("/self-test/results", HTTP_DELETE, []() { clearSelfTestDetailsFiles(); });
 
   server.on("/self-test", HTTP_GET,
-            []() { server.send(200, "application/json", selfTestSnapshotJson()); });
+            []() { sendSelfTestSnapshot(true); });
 
   server.on("/commissioning/complete", HTTP_POST, []() {
     selfTest.confirmCommissioningComplete();
@@ -501,5 +525,6 @@ void webserver_loop() {
   if (WiFi.status() == WL_CONNECTED) {
     server.handleClient();
     updatePendingInteractiveSelfTest();
+    updatePendingSelfTestReboot();
   }
 }

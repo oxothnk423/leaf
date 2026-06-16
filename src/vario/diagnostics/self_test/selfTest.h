@@ -15,6 +15,7 @@ class SelfTest {
   String resultsFileName() const;
   void confirmCommissioningComplete();
   bool commissioningCompleteConfirmed() const;
+  bool sdCardFormatRebootPending() const;
 
   // results for all self tests, including both automated and interactive
   struct Results {
@@ -47,6 +48,7 @@ class SelfTest {
   bool tallyResults();
   void clearResults();
   bool commissioning_complete_confirmed = false;
+  bool sd_card_format_reboot_pending = false;
 
   // Individual automated test functions
   static Status testBaro();

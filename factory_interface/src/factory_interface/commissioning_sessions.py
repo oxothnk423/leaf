@@ -325,6 +325,13 @@ def self_test_status(payload: dict) -> str | None:
     return None
 
 
+def self_test_requests_format_reboot(payload: dict) -> bool:
+    return (
+        bool(payload.get("rebooting", False))
+        and str(payload.get("reboot_reason", "")) == "sd_card_formatted"
+    )
+
+
 async def retrieve_session_self_test_details(session: CommissioningSession, base_url: str) -> str:
     self_test_details = await asyncio.to_thread(
         fetch_text,
@@ -616,6 +623,28 @@ async def run_commissioning_session(session: CommissioningSession) -> None:
             self_test_task["result"] = self_test_payload
             self_test_task["details"] = json.dumps(self_test_payload, indent=2)
             session.touch()
+
+            if self_test_requests_format_reboot(self_test_payload):
+                self_test_task["details"] = (
+                    "SD card was formatted successfully. Waiting for device to reboot before "
+                    "restarting verification tests..."
+                )
+                session.touch()
+                await asyncio.sleep(RECONNECT_GRACE_SECONDS)
+                await wait_for_session_device(session)
+                base_url = f"{device_base_url(session)}/self-test"
+                await asyncio.to_thread(
+                    fetch_json,
+                    f"{base_url}/interactive",
+                    method="POST",
+                    timeout=SELF_TEST_HTTP_TIMEOUT_SECONDS,
+                )
+                last_device_response_at = time.monotonic()
+                self_test_task["details"] = (
+                    "Device reconnected after SD card format. Restarting verification tests..."
+                )
+                session.touch()
+                continue
 
             result = self_test_status(self_test_payload)
             if result is not None:

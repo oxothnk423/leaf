@@ -116,6 +116,8 @@ bool pressButtonToContinue() {
 
 String SelfTest::resultsFileName() const { return self_test_file_name; }
 
+bool SelfTest::sdCardFormatRebootPending() const { return sd_card_format_reboot_pending; }
+
 void selfTestInfo(const char* msg, ...) {
   char buffer[BUFFER_SIZE];
 
@@ -141,7 +143,9 @@ void selfTestInfo(const char* msg, ...) {
 // SD CARD TEST
 SelfTest::Status SelfTest::testSDCard() {
   Status result = Status::Running;
-  if (sdcard.isCardPresent() == false) {
+  if (selfTest.sd_card_format_reboot_pending) {
+    result = Status::Running;
+  } else if (sdcard.isCardPresent() == false) {
     selfTestInfo("`Test=SD_CARD`,    `Result=FAIL`, `Message=Physical card detection failed`");
     result = Status::Fail;
   } else {
@@ -167,9 +171,15 @@ SelfTest::Status SelfTest::testSDCard() {
       selfTestInfo("`Test=SD_CARD`,    `Result=FAIL`, `Message=Cannot save self test results%s`",
                    formatAttempted ? " after format attempt" : "");
       result = Status::Fail;
+    } else if (formatAttempted) {
+      selfTestInfo(
+          "`Test=SD_CARD`,    `Result=PASS`, `Message=Formatted SD card. Rebooting before "
+          "continuing self test`");
+      selfTest.closeTestFile();
+      selfTest.sd_card_format_reboot_pending = true;
+      result = Status::Running;
     } else {
-      selfTestInfo("`Test=SD_CARD`,    `Result=PASS`, `Message=%sSaving self test results`",
-                   formatAttempted ? "Formatted SD card. " : "");
+      selfTestInfo("`Test=SD_CARD`,    `Result=PASS`, `Message=Saving self test results`");
       result = Status::Pass;
     }
   }
@@ -793,4 +803,5 @@ void SelfTest::clearResults() {
   gpsFixTestCancelled = false;
   waitForVarioStartButton = false;
   varioStartPromptComplete = false;
+  sd_card_format_reboot_pending = false;
 }

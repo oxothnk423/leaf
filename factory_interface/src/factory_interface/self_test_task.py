@@ -16,6 +16,7 @@ SELF_TEST_POLL_SECONDS = 1.0
 HTTP_TIMEOUT_SECONDS = DEFAULT_HTTP_TIMEOUT_SECONDS
 SELF_TEST_HTTP_TIMEOUT_SECONDS = 20.0
 SELF_TEST_COMMUNICATION_GRACE_SECONDS = 180.0
+SELF_TEST_REBOOT_GRACE_SECONDS = 2.0
 
 
 @dataclass
@@ -146,6 +147,13 @@ def status_result(payload: dict) -> str | None:
     return None
 
 
+def self_test_requests_format_reboot(payload: dict) -> bool:
+    return (
+        bool(payload.get("rebooting", False))
+        and str(payload.get("reboot_reason", "")) == "sd_card_formatted"
+    )
+
+
 async def retrieve_self_test_details_text(base_url: str) -> str:
     details = await asyncio.to_thread(
         fetch_text,
@@ -155,6 +163,26 @@ async def retrieve_self_test_details_text(base_url: str) -> str:
     if not details.strip():
         raise RuntimeError("Device returned empty self test details.")
     return details
+
+
+async def restart_self_test_after_format_reboot() -> str:
+    await asyncio.sleep(SELF_TEST_REBOOT_GRACE_SECONDS)
+    started_waiting_at = time.monotonic()
+
+    while True:
+        base_url = device_self_test_url()
+        try:
+            await asyncio.to_thread(
+                fetch_json,
+                f"{base_url}/interactive",
+                method="POST",
+                timeout=SELF_TEST_HTTP_TIMEOUT_SECONDS,
+            )
+            return base_url
+        except (OSError, URLError, TimeoutError):
+            if time.monotonic() - started_waiting_at >= SELF_TEST_COMMUNICATION_GRACE_SECONDS:
+                raise
+            await asyncio.sleep(SELF_TEST_POLL_SECONDS)
 
 
 async def run_interactive_self_test() -> None:
@@ -200,6 +228,18 @@ async def run_interactive_self_test() -> None:
 
                 task.result = payload
                 task.details = json.dumps(payload, indent=2)
+
+                if self_test_requests_format_reboot(payload):
+                    task.details = (
+                        "SD card was formatted successfully. Waiting for device to reboot before "
+                        "restarting verification tests..."
+                    )
+                    base_url = await restart_self_test_after_format_reboot()
+                    last_device_response_at = time.monotonic()
+                    task.details = (
+                        "Device reconnected after SD card format. Restarting verification tests..."
+                    )
+                    continue
 
                 result = status_result(payload)
                 if result is not None:
