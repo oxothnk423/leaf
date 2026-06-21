@@ -22,6 +22,7 @@
 #include "ui/display/pages/dialogs/page_warning.h"
 #include "ui/display/pages/primary/page_charging.h"
 #include "ui/display/pages/primary/page_debug.h"
+#include "ui/display/pages/primary/page_games.h"
 #include "ui/display/pages/primary/page_navigate.h"
 #include "ui/display/pages/primary/page_simple.h"
 #include "ui/display/pages/primary/page_thermal.h"

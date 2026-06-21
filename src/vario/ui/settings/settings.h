@@ -98,6 +98,7 @@ typedef uint8_t SettingLogFormat;
 #define DEF_SHOW_THRM 1       // Enable thermal page
 #define DEF_SHOW_THRM_ADV 0   // Enable thermal adv page
 #define DEF_SHOW_NAV 0        // Enable nav page
+#define DEF_SHOW_GAMES 1      // Enable games page
 #define DEF_STARTPAGE 2       // Start on Thermal page
 
 // Fanet settings
@@ -181,6 +182,7 @@ setting | samples | time avg
   bool disp_showThmPage;
   bool disp_showThmAdvPage;
   bool disp_showNavPage;
+  bool disp_showGamesPage;
   uint8_t startPage;
 
   // Fanet settings

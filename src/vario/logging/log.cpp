@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 #include "comms/fanet_radio.h"
+#include "games/envelope_expansion.h"
 #include "instruments/ambient.h"
 #include "instruments/baro.h"
 #include "instruments/gps.h"
@@ -106,6 +107,8 @@ void log_update() {
 
         logbook.startLocationLat = gps.location.lat();
         logbook.startLocationLng = gps.location.lng();
+
+        envelopeExpansion.beginFlight();
       }
     }
 
@@ -113,6 +116,7 @@ void log_update() {
     flight->log(logbook.duration);
     log_captureValues();      // TODO:  Update this to an "Update Flight Stats" or something
     log_checkMinMaxValues();  // TODO:  Probably rename this to be "bound Flight Stats"
+    envelopeExpansion.update();
   }
 }
 
@@ -269,6 +273,7 @@ void flightTimer_stop(bool showSummary) {
 
   // ending values
   log_captureEndingValues();
+  envelopeExpansion.endFlight();
 
   // close the flight
   flight->end(logbook, showSummary);

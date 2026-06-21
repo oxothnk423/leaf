@@ -195,6 +195,7 @@ void Settings::loadDefaults() {
   disp_showThmPage = DEF_SHOW_THRM;
   disp_showThmAdvPage = DEF_SHOW_THRM_ADV;
   disp_showNavPage = DEF_SHOW_NAV;
+  disp_showGamesPage = DEF_SHOW_GAMES;
   startPage = DEF_STARTPAGE;
 
   // Unit Values
@@ -268,8 +269,9 @@ void Settings::retrieve() {
   disp_showThmPage = leafPrefs.getBool("SHOW_THRM");
   disp_showThmAdvPage = leafPrefs.getBool("SHOW_THRM_ADV");
   disp_showNavPage = leafPrefs.getBool("SHOW_NAV");
+  disp_showGamesPage = leafPrefs.getBool("SHOW_GAMES", DEF_SHOW_GAMES);
   startPage = leafPrefs.getUChar("START_PAGE", DEF_STARTPAGE);
-  if (startPage > (uint8_t)MainPage::Nav) startPage = DEF_STARTPAGE;
+  if (startPage > (uint8_t)MainPage::Games) startPage = DEF_STARTPAGE;
 
   // Fanet settings
   fanet_region = (FanetRadioRegion)leafPrefs.getUInt("FANET_REGION");
@@ -342,6 +344,7 @@ void Settings::save() {
   leafPrefs.putBool("SHOW_THRM", disp_showThmPage);
   leafPrefs.putBool("SHOW_THRM_ADV", disp_showThmAdvPage);
   leafPrefs.putBool("SHOW_NAV", disp_showNavPage);
+  leafPrefs.putBool("SHOW_GAMES", disp_showGamesPage);
   leafPrefs.putUChar("START_PAGE", startPage);
   // Fanet Settings
   leafPrefs.putUInt("FANET_REGION", (uint32_t)fanet_region);

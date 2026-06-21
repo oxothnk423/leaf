@@ -17,6 +17,7 @@ enum display_menu_items {
   cursor_display_show_thrm,    // user page
   // cursor_display_show_thrm_adv,  // currently not used and half-developed
   cursor_display_show_nav,  // navigate page
+  cursor_display_show_games,
   cursor_display_contrast,
 };
 
@@ -33,7 +34,7 @@ void DisplayMenuPage::draw() {
     uint8_t y_spacing = 16;
     uint8_t setting_name_x = 3;
     uint8_t setting_choice_x = 78;
-    uint8_t menu_items_y[] = {190, 60, 75, 90, 135};
+    uint8_t menu_items_y[] = {190, 60, 75, 90, 105, 135};
 
     // first draw cursor selection box
     u8g2.drawRBox(setting_choice_x - 2, menu_items_y[cursor_position] - 14, 22, 16, 2);
@@ -74,6 +75,12 @@ void DisplayMenuPage::draw() {
           else
             u8g2.print(char(123));
           break;
+        case cursor_display_show_games:
+          if (settings.disp_showGamesPage)
+            u8g2.print(char(125));
+          else
+            u8g2.print(char(123));
+          break;
         case cursor_display_contrast:
           if (settings.disp_contrast < 10) u8g2.print(" ");
           u8g2.print(settings.disp_contrast);
@@ -106,6 +113,10 @@ void DisplayMenuPage::setting_change(Button dir, ButtonEvent state, uint8_t coun
     case cursor_display_show_nav:
       if (state == ButtonEvent::CLICKED && dir == Button::CENTER)
         settings.toggleBoolOnOff(&settings.disp_showNavPage);
+      break;
+    case cursor_display_show_games:
+      if (state == ButtonEvent::CLICKED && dir == Button::CENTER)
+        settings.toggleBoolOnOff(&settings.disp_showGamesPage);
       break;
     case cursor_display_contrast:
       if (state == ButtonEvent::CLICKED || state == ButtonEvent::INCREMENTED)

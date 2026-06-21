@@ -227,6 +227,7 @@ void Power::shutdown(bool deadBattery) {
     case MainPage::Thermal:
     case MainPage::ThermalAdv:
     case MainPage::Nav:
+    case MainPage::Games:
       settings.startPage = (uint8_t)display.getPage();
       break;
     default:
