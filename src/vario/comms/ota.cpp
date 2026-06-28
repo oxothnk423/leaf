@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 #include <stdexcept>
 
@@ -11,12 +12,23 @@
 String getLatestTagVersion() {
   Serial.print("[OTA] Getting latest tag version from ");
   Serial.println(LeafVersionInfo::otaVersionsUrl());
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
-  http.begin(LeafVersionInfo::otaVersionsUrl());
+  http.begin(client, LeafVersionInfo::otaVersionsUrl());
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    throw std::runtime_error(((String) "HTTP GET failed " + httpCode).c_str());
+    String error = "HTTP GET failed ";
+    error += httpCode;
+    if (httpCode < 0) {
+      error += " (";
+      error += HTTPClient::errorToString(httpCode);
+      error += ")";
+    }
+    Serial.print("[OTA] ");
+    Serial.println(error);
+    throw std::runtime_error(error.c_str());
   }
 
   String payload = http.getString();

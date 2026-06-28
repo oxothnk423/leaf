@@ -9,6 +9,7 @@
 #include "comms/ble.h"
 #include "comms/factory_discovery.h"
 #include "comms/fanet_radio.h"
+#include "comms/ota.h"
 #include "comms/wifi_coordinator.h"
 #include "diagnostics/heap_monitor.h"
 #include "diagnostics/memory_report.h"
@@ -22,6 +23,7 @@
 #include "ui/display/display.h"
 #include "ui/settings/settings.h"
 #include "utils/lock_guard.h"
+#include <stdexcept>
 
 namespace {
   ::WebServer user_server(80);
@@ -33,6 +35,14 @@ namespace {
   bool user_app_enabled = false;
   bool user_app_using_leaf_wifi = false;
   bool user_app_provisioning = false;
+  bool firmware_update_check_complete = false;
+  bool firmware_update_available = false;
+  String firmware_update_latest_tag = "";
+  String firmware_update_error = "";
+  uint32_t firmware_update_heap_before = 0;
+  uint32_t firmware_update_heap_after = 0;
+  uint32_t firmware_update_max_alloc_before = 0;
+  uint32_t firmware_update_max_alloc_after = 0;
   bool user_app_services_paused = false;
   bool user_app_dns_started = false;
   bool user_app_restart_ble = false;
@@ -436,6 +446,17 @@ namespace {
     return url;
   }
 
+  void resetFirmwareUpdateCheck() {
+    firmware_update_check_complete = false;
+    firmware_update_available = false;
+    firmware_update_latest_tag = "";
+    firmware_update_error = "";
+    firmware_update_heap_before = 0;
+    firmware_update_heap_after = 0;
+    firmware_update_max_alloc_before = 0;
+    firmware_update_max_alloc_after = 0;
+  }
+
   String deviceHexDigits() {
     String hex = settings.getMacAddress();
     hex.replace(":", "");
@@ -728,8 +749,8 @@ namespace {
     }
 
     static constexpr char USER_APP_PAGE[] PROGMEM =
-        R"leafapp(<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta http-equiv=Cache-Control content=no-store><title>Leaf</title><style>:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#202423;background:#363636;line-height:1.35;--leaf:#d8ff00;--ink:#202423;--panel:#565656;--sub:#4d4d4d;--danger:#7a1d1d}body{margin:0;background:#363636}header{background:var(--leaf);color:#0b0d0b;padding:12px 20px;text-align:center}main{max-width:640px;margin:auto;padding:18px}h1{font-family:Arial,sans-serif;font-size:38px;font-weight:500;letter-spacing:.12em;line-height:1;margin:0}h2{font-size:18px;margin:-16px -14px 14px;padding:10px 12px;color:#0b0d0b;background:var(--leaf);text-align:center;border-radius:5px 5px 0 0}section{background:var(--panel);border-radius:8px;margin:0 0 14px;padding:16px 14px}.status-panel{padding-top:14px}.status-panel h2{background:var(--panel);color:white;border-bottom:1px solid #a9a9a9;margin:-14px -14px 14px}.view{display:none}.view.active{display:block}.subbar{position:relative;display:flex;align-items:center;justify-content:center;min-height:38px;color:white;margin:0 0 14px}.back{position:absolute;left:0;top:0;width:42px;height:38px;background:white;color:var(--ink);border-color:white;box-shadow:none;padding:5px 8px;font-size:28px;font-weight:900;line-height:.9}.subbar h2{color:white;background:transparent;margin:0;padding:0;font-size:18px}.row{display:flex;gap:8px}.row>*{flex:1}.row>.small{flex:0 0 94px}.actions{display:flex;align-items:center;gap:10px;margin-top:12px}.actions .msg{flex:1;margin:0}.actions button,.profile-actions button{width:auto;padding:8px 10px;font-size:14px}.profile-actions{margin-top:12px;gap:14px}label{display:block;font-size:13px;font-weight:700;margin:10px 0 4px;color:white}input,select,button{box-sizing:border-box;width:100%;font:inherit;padding:11px;border:1px solid #b9c0b2;border-radius:7px;background:white;color:var(--ink)}input:focus,select:focus,button:focus{outline:2px solid var(--leaf);outline-offset:1px}select:disabled,button:disabled,.secondary:disabled,.danger:disabled{background:#686868;border-color:#686868;color:#8a8a8a;opacity:1;box-shadow:none}button{background:var(--ink);color:white;font-weight:750;border-color:var(--ink);box-shadow:inset 0 -2px 0 rgba(0,0,0,.22)}.secondary{background:white;color:var(--ink);border-color:#89917f;box-shadow:none}.danger{background:var(--danger);border-color:var(--danger);color:white}.profile-actions button:first-child:not(:disabled){background:var(--leaf);border-color:var(--leaf);color:#0b0d0b}.muted{color:#e2e7dc}.msg{min-height:20px;margin-top:10px}.status{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;white-space:pre-wrap;color:white;min-width:0}.status-body{display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:start;justify-content:space-between;column-gap:14px}.status-side{display:grid;gap:8px;justify-items:end}.sync{color:#e2e7dc;font-size:12px;font-weight:650;text-align:right}.sync strong{display:block;color:white;font-size:13px}.battery-status{color:white;text-align:right;font-size:13px;font-weight:700}.battery-line{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-bottom:4px}.battery{position:relative;width:44px;height:20px;border:2px solid white;border-radius:4px;box-sizing:border-box}.battery:after{content:"";position:absolute;right:-6px;top:4px;width:4px;height:8px;background:white;border-radius:0 2px 2px 0}.battery-fill{display:block;height:100%;background:var(--leaf);border-radius:2px}.battery-meta{font-size:12px;font-weight:650;color:#e2e7dc}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:9px}.metric{background:var(--sub);border-radius:7px;padding:8px 10px;color:white}.metric span{display:block;color:#dfe5d9;font-size:12px;font-weight:650;margin-bottom:2px}.metric strong{display:block;font-size:16px}#logCount{font-size:34px;line-height:1}.pager{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin-bottom:12px}.pager button{height:38px;padding:0;background:var(--leaf);border-color:var(--leaf);color:#0b0d0b}.pager button:disabled{background:#686868;border-color:#686868;color:#8a8a8a;box-shadow:none}.page-title{text-align:center;color:white;font-weight:800}.flight-head{display:flex;justify-content:space-between;gap:12px;color:white;margin-bottom:12px}.flight-card{color:white}.alt-box,.vario-box{background:var(--sub);border-radius:7px;padding:12px;margin:12px 0}.alt-box{position:relative;padding-bottom:34px}.alt-title{position:absolute;left:0;right:0;bottom:8px;text-align:center}.alt-title,.vario-title{font-size:18px;font-weight:800}.vario-title{text-align:center}.alt-row{position:relative;height:118px;margin-top:4px}.alt-row .pill{position:absolute;min-width:74px;background:#111;color:white}.alt-row .pill.high{background:var(--leaf);color:#0b0d0b}.pill{background:var(--leaf);color:#0b0d0b;border-radius:6px;padding:5px 8px;font-weight:800;text-align:center}.pill span{display:block;font-size:11px}.detail-grid{display:grid;grid-template-columns:1fr 1.45fr;gap:10px}.vario-box{display:flex;flex-direction:column;justify-content:center;gap:9px}.vario-title{order:2}.vario-values{display:contents}#climbMax{order:1}#sinkMax{order:3}.sink{background:#111;color:white}.mini-metrics{background:var(--sub);border-radius:7px;padding:8px 10px}.mini-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #777;padding:5px 0}.mini-row:last-child{border-bottom:0}.track{overflow-wrap:anywhere;color:#e2e7dc;margin-top:12px;font-size:13px}@media(max-width:520px){.detail-grid{grid-template-columns:1fr 1.45fr}.status-body{grid-template-columns:minmax(0,1fr) max-content}.status-side{justify-items:end}.sync,.battery-status{text-align:right}.battery-line{justify-content:flex-end}}</style></head><body><header><h1>Leaf</h1></header><main><div id=mainView class="view active"><section class=status-panel><h2>Status</h2><div class=status-body><div class=status id=status>Loading...</div><div class=status-side><div class=battery-status id=batteryBox><div class=battery-line><span id=batteryText>--%</span><div class=battery><span class=battery-fill id=batteryFill></span></div></div><div class=battery-meta id=batteryCharge>Unknown</div></div><div class=sync><strong>Log Sync</strong><span id=syncText>--</span></div></div></div></section><section><h2>Profiles</h2><label>Active pilot</label><select id=activePilotList></select><label>Active glider</label><select id=activeGliderList></select><div class=actions><p class="muted msg" id=mainProfileMsg></p><button class=secondary id=editProfiles>Edit Profiles</button></div></section><section><h2>Logbook</h2><div class=metrics><div class=metric><span>Total Flights</span><strong id=logCount>--</strong></div><div class=metric><span>Last Flight</span><strong id=logLatest>Loading...</strong></div></div><div class=actions><p class="muted msg" id=logMsg></p><button class=secondary id=openLogbook disabled>Open Logbook</button></div></section></div><div id=profilesView class=view><div class=subbar><button class=back id=backMain aria-label=Back>&#x276e;</button><h2>Edit Profiles</h2></div><section><h2>Pilots</h2><label>Active pilot</label><select id=pilotList></select><label>Name</label><input id=pilotName maxlength=48 autocomplete=name><div class="row profile-actions"><button id=pilotSave disabled>Save Profile</button><button class=secondary id=pilotNew>New</button><button class="small danger" id=pilotDelete>Delete</button></div><p class="muted msg" id=pilotMsg></p></section><section><h2>Gliders</h2><label>Active glider</label><select id=gliderList></select><div class=row><div><label>Brand</label><input id=gliderBrand maxlength=32></div><div><label>Model</label><input id=gliderModel maxlength=48></div></div><div class=row><div><label>Size</label><input id=gliderSize maxlength=16></div><div><label>Display name</label><input id=gliderDisplay maxlength=64></div></div><div class="row profile-actions"><button id=gliderSave disabled>Save Profile</button><button class=secondary id=gliderNew>New</button><button class="small danger" id=gliderDelete>Delete</button></div><p class="muted msg" id=gliderMsg></p></section></div><div id=logbookView class=view><div class=subbar><button class=back id=backLogMain aria-label=Back>&#x276e;</button><h2>Logbook</h2></div><section class=flight-card><div class=pager><button id=logPrev>&#x276e;</button><div class=page-title id=logPage>--</div><button id=logNext>&#x276f;</button></div><div class=flight-head><div id=flightTime>Loading...</div><div id=flightDuration></div></div><div class=alt-box><div class=alt-title>Altitude</div><div class=alt-row><div class=pill id=altStart><span>Start</span>--</div><div class=pill id=altMax><span>Max</span>--</div><div class=pill id=altEnd><span>End</span>--</div></div></div><div class=detail-grid><div class=vario-box><div class=vario-title>Vario</div><div class=vario-values><div class=pill id=climbMax>--</div><div class="pill sink" id=sinkMax>--</div></div></div><div class=mini-metrics id=flightMetrics></div></div><div class=track id=trackInfo></div><p class="muted msg" id=logDetailMsg></p></section></div></main><script>
-let profiles={schema:'leaf.profiles',schema_version:'v0.1.0',active_pilot_id:null,active_glider_id:null,pilots:[],gliders:[]},pilotSnap={},gliderSnap={},logState={prev:'',next:'',path:''};
+        R"leafapp(<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta http-equiv=Cache-Control content=no-store><title>Leaf</title><style>:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#202423;background:#363636;line-height:1.35;--leaf:#d8ff00;--ink:#202423;--panel:#565656;--sub:#4d4d4d;--danger:#7a1d1d}body{margin:0;background:#363636}header{background:var(--leaf);color:#0b0d0b;padding:12px 20px;text-align:center}main{max-width:640px;margin:auto;padding:18px}h1{font-family:Arial,sans-serif;font-size:38px;font-weight:500;letter-spacing:.12em;line-height:1;margin:0}h2{font-size:18px;margin:-16px -14px 14px;padding:10px 12px;color:#0b0d0b;background:var(--leaf);text-align:center;border-radius:5px 5px 0 0}section{background:var(--panel);border-radius:8px;margin:0 0 14px;padding:16px 14px}.status-panel{padding-top:14px}.status-panel h2{background:var(--panel);color:white;border-bottom:1px solid #a9a9a9;margin:-14px -14px 14px}.view{display:none}.view.active{display:block}.subbar{position:relative;display:flex;align-items:center;justify-content:center;min-height:38px;color:white;margin:0 0 14px}.back{position:absolute;left:0;top:0;width:42px;height:38px;background:white;color:var(--ink);border-color:white;box-shadow:none;padding:5px 8px;font-size:28px;font-weight:900;line-height:.9}.subbar h2{color:white;background:transparent;margin:0;padding:0;font-size:18px}.row{display:flex;gap:8px}.row>*{flex:1}.row>.small{flex:0 0 94px}.actions{display:flex;align-items:center;gap:10px;margin-top:12px}.actions .msg{flex:1;margin:0}.actions button,.profile-actions button{width:auto;padding:8px 10px;font-size:14px}.profile-actions{margin-top:12px;gap:14px}label{display:block;font-size:13px;font-weight:700;margin:10px 0 4px;color:white}input,select,button{box-sizing:border-box;width:100%;font:inherit;padding:11px;border:1px solid #b9c0b2;border-radius:7px;background:white;color:var(--ink)}input:focus,select:focus,button:focus{outline:2px solid var(--leaf);outline-offset:1px}select:disabled,button:disabled,.secondary:disabled,.danger:disabled{background:#686868;border-color:#686868;color:#8a8a8a;opacity:1;box-shadow:none}button{background:var(--ink);color:white;font-weight:750;border-color:var(--ink);box-shadow:inset 0 -2px 0 rgba(0,0,0,.22)}.secondary{background:white;color:var(--ink);border-color:#89917f;box-shadow:none}.danger{background:var(--danger);border-color:var(--danger);color:white}.profile-actions button:first-child:not(:disabled){background:var(--leaf);border-color:var(--leaf);color:#0b0d0b}.muted{color:#e2e7dc}.msg{min-height:20px;margin-top:10px}.status{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;white-space:pre-wrap;color:white;min-width:0}.update-line{color:var(--leaf);font-weight:800;margin-top:2px}.status-body{display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:start;justify-content:space-between;column-gap:14px}.status-side{display:grid;gap:8px;justify-items:end}.sync{color:#e2e7dc;font-size:12px;font-weight:650;text-align:right}.sync strong{display:block;color:white;font-size:13px}.battery-status{color:white;text-align:right;font-size:13px;font-weight:700}.battery-line{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-bottom:4px}.battery{position:relative;width:44px;height:20px;border:2px solid white;border-radius:4px;box-sizing:border-box}.battery:after{content:"";position:absolute;right:-6px;top:4px;width:4px;height:8px;background:white;border-radius:0 2px 2px 0}.battery-fill{display:block;height:100%;background:var(--leaf);border-radius:2px}.battery-meta{font-size:12px;font-weight:650;color:#e2e7dc}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:9px}.metric{background:var(--sub);border-radius:7px;padding:8px 10px;color:white}.metric span{display:block;color:#dfe5d9;font-size:12px;font-weight:650;margin-bottom:2px}.metric strong{display:block;font-size:16px}#logCount{font-size:34px;line-height:1}.pager{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin-bottom:12px}.pager button{height:38px;padding:0;background:var(--leaf);border-color:var(--leaf);color:#0b0d0b}.pager button:disabled{background:#686868;border-color:#686868;color:#8a8a8a;box-shadow:none}.page-title{text-align:center;color:white;font-weight:800}.flight-head{display:flex;justify-content:space-between;gap:12px;color:white;margin-bottom:12px}.flight-card{color:white}.alt-box,.vario-box{background:var(--sub);border-radius:7px;padding:12px;margin:12px 0}.alt-box{position:relative;padding-bottom:34px}.alt-title{position:absolute;left:0;right:0;bottom:8px;text-align:center}.alt-title,.vario-title{font-size:18px;font-weight:800}.vario-title{text-align:center}.alt-row{position:relative;height:118px;margin-top:4px}.alt-row .pill{position:absolute;min-width:74px;background:#111;color:white}.alt-row .pill.high{background:var(--leaf);color:#0b0d0b}.pill{background:var(--leaf);color:#0b0d0b;border-radius:6px;padding:5px 8px;font-weight:800;text-align:center}.pill span{display:block;font-size:11px}.detail-grid{display:grid;grid-template-columns:1fr 1.45fr;gap:10px}.vario-box{display:flex;flex-direction:column;justify-content:center;gap:9px}.vario-title{order:2}.vario-values{display:contents}#climbMax{order:1}#sinkMax{order:3}.sink{background:#111;color:white}.mini-metrics{background:var(--sub);border-radius:7px;padding:8px 10px}.mini-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #777;padding:5px 0}.mini-row:last-child{border-bottom:0}.track{overflow-wrap:anywhere;color:#e2e7dc;margin-top:12px;font-size:13px}@media(max-width:520px){.detail-grid{grid-template-columns:1fr 1.45fr}.status-body{grid-template-columns:minmax(0,1fr) max-content}.status-side{justify-items:end}.sync,.battery-status{text-align:right}.battery-line{justify-content:flex-end}}</style></head><body><header><h1>Leaf</h1></header><main><div id=mainView class="view active"><section class=status-panel><h2>Status</h2><div class=status-body><div class=status id=status>Loading...</div><div class=status-side><div class=battery-status id=batteryBox><div class=battery-line><span id=batteryText>--%</span><div class=battery><span class=battery-fill id=batteryFill></span></div></div><div class=battery-meta id=batteryCharge>Unknown</div></div><div class=sync><strong>Log Sync</strong><span id=syncText>--</span></div></div></div></section><section><h2>Profiles</h2><label>Active pilot</label><select id=activePilotList></select><label>Active glider</label><select id=activeGliderList></select><div class=actions><p class="muted msg" id=mainProfileMsg></p><button class=secondary id=editProfiles>Edit Profiles</button></div></section><section><h2>Logbook</h2><div class=metrics><div class=metric><span>Total Flights</span><strong id=logCount>--</strong></div><div class=metric><span>Last Flight</span><strong id=logLatest>Loading...</strong></div></div><div class=actions><p class="muted msg" id=logMsg></p><button class=secondary id=openLogbook disabled>Open Logbook</button></div></section></div><div id=profilesView class=view><div class=subbar><button class=back id=backMain aria-label=Back>&#x276e;</button><h2>Edit Profiles</h2></div><section><h2>Pilots</h2><label>Active pilot</label><select id=pilotList></select><label>Name</label><input id=pilotName maxlength=48 autocomplete=name><div class="row profile-actions"><button id=pilotSave disabled>Save Profile</button><button class=secondary id=pilotNew>New</button><button class="small danger" id=pilotDelete>Delete</button></div><p class="muted msg" id=pilotMsg></p></section><section><h2>Gliders</h2><label>Active glider</label><select id=gliderList></select><div class=row><div><label>Brand</label><input id=gliderBrand maxlength=32></div><div><label>Model</label><input id=gliderModel maxlength=48></div></div><div class=row><div><label>Size</label><input id=gliderSize maxlength=16></div><div><label>Display name</label><input id=gliderDisplay maxlength=64></div></div><div class="row profile-actions"><button id=gliderSave disabled>Save Profile</button><button class=secondary id=gliderNew>New</button><button class="small danger" id=gliderDelete>Delete</button></div><p class="muted msg" id=gliderMsg></p></section></div><div id=logbookView class=view><div class=subbar><button class=back id=backLogMain aria-label=Back>&#x276e;</button><h2>Logbook</h2></div><section class=flight-card><div class=pager><button id=logPrev>&#x276e;</button><div class=page-title id=logPage>--</div><button id=logNext>&#x276f;</button></div><div class=flight-head><div id=flightTime>Loading...</div><div id=flightDuration></div></div><div class=alt-box><div class=alt-title>Altitude</div><div class=alt-row><div class=pill id=altStart><span>Start</span>--</div><div class=pill id=altMax><span>Max</span>--</div><div class=pill id=altEnd><span>End</span>--</div></div></div><div class=detail-grid><div class=vario-box><div class=vario-title>Vario</div><div class=vario-values><div class=pill id=climbMax>--</div><div class="pill sink" id=sinkMax>--</div></div></div><div class=mini-metrics id=flightMetrics></div></div><div class=track id=trackInfo></div><p class="muted msg" id=logDetailMsg></p></section></div></main><script>
+let profiles={schema:'leaf.profiles',schema_version:'v0.1.0',active_pilot_id:null,active_glider_id:null,pilots:[],gliders:[]},pilotSnap={},gliderSnap={},logState={prev:'',next:'',path:''},firmwareCheckRequested=false;
 const $=id=>document.getElementById(id),clean=v=>{v=(v||'').trim();return v?v:null},newId=()=>Math.floor(Math.random()*0xffffffff).toString(16).padStart(8,'0');
 function pilotLabel(p){return p.name||'Unnamed pilot'}function gliderLabel(g){return g.display_name||[g.brand,g.model,g.size].filter(Boolean).join(' ')||'Unnamed glider'}
 function selectedPilot(){return profiles.pilots.find(p=>p.id==profiles.active_pilot_id)}function selectedGlider(){return profiles.gliders.find(g=>g.id==profiles.active_glider_id)}
@@ -741,12 +762,12 @@ function buttons(){let p=pilotEditor(),g=gliderEditor();$('pilotSave').disabled=
 function render(){fillSelect($('pilotList'),profiles.pilots,pilotLabel);fillSelect($('activePilotList'),profiles.pilots,pilotLabel);if(profiles.active_pilot_id){$('pilotList').value=profiles.active_pilot_id;$('activePilotList').value=profiles.active_pilot_id}let p=selectedPilot();$('pilotName').value=p?p.name||'':'';if(!profiles.pilots.length)msg('pilotMsg','Enter pilot name, then Save Profile.');fillSelect($('gliderList'),profiles.gliders,gliderLabel);fillSelect($('activeGliderList'),profiles.gliders,gliderLabel);if(profiles.active_glider_id){$('gliderList').value=profiles.active_glider_id;$('activeGliderList').value=profiles.active_glider_id}let g=selectedGlider();$('gliderBrand').value=g?g.brand||'':'';$('gliderModel').value=g?g.model||'':'';$('gliderSize').value=g?g.size||'':'';$('gliderDisplay').value=g?g.display_name||'':'';if(!profiles.gliders.length)msg('gliderMsg','Enter glider details, then Save Profile.');setSnaps()}
 function normalize(){profiles.schema='leaf.profiles';profiles.schema_version='v0.1.0';profiles.pilots=(profiles.pilots||[]).filter(p=>p&&p.id&&p.name);profiles.gliders=(profiles.gliders||[]).filter(g=>g&&g.id&&g.model);if(!profiles.pilots.find(p=>p.id==profiles.active_pilot_id))profiles.active_pilot_id=profiles.pilots.length==1?profiles.pilots[0].id:null;if(!profiles.gliders.find(g=>g.id==profiles.active_glider_id))profiles.active_glider_id=profiles.gliders.length==1?profiles.gliders[0].id:null}
 async function save(){normalize();let r=await fetch('/api/profiles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(profiles)});if(!r.ok)throw new Error();render()}
-function versionText(v){let a=(v||'').split('+'),fw=a[0]||'unknown',hw=a[1]||'';if(fw[0]!='v')fw='v'+fw;if(hw){if(hw[0]=='h')hw=hw.slice(1);if(hw[0]!='v')hw='v'+hw}return `firmware: ${fw}`+(hw?`\nhardware: ${hw}`:'')}
+function versionText(v){let a=(v||'').split('+'),fw=a[0]||'unknown',hw=a[1]||'';if(fw[0]!='v')fw='v'+fw;if(hw){if(hw[0]=='h')hw=hw.slice(1);if(hw[0]!='v')hw='v'+hw}return (hw?`hardware: ${hw}\n`:'')+`firmware: ${fw}`}
 function logDateTime(t,h12){if(!t)return'';let a=t.split('T'),d=a[0]||'',hm=(a[1]||'').slice(0,5),h=Number(hm.slice(0,2)),m=hm.slice(3,5);if(h12&&Number.isFinite(h)){let ap=h>=12?'PM':'AM';h=h%12||12;hm=h+':'+m+'\u00a0'+ap}return d+'  '+hm}
 function dur(s){s=Number(s)||0;let h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h?h+'h '+m+'m':m+'m'}
 function good(v){return v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v))}function m(v){return good(v)?Math.round(Number(v))+' m':'--'}function ms(v){return good(v)?Number(v).toFixed(1)+' m/s':'--'}function kph(v){return good(v)?(Number(v)*3.6).toFixed(1)+' kph':'--'}function dist(v){if(!good(v))return'--';v=Number(v);return v>=1000?(v/1000).toFixed(2)+' km':Math.round(v)+' m'}
 function renderAlt(e){let s=Number(e.start_altitude_m),x=Number(e.max_altitude_m),n=Number(e.min_altitude_m),end=Number(e.end_altitude_m);let vals=[s,x,end].filter(Number.isFinite);if(!Number.isFinite(n))n=Math.min(...vals,0);let hi=Math.max(...vals,0),lo=Math.min(n,...vals,0),range=Math.max(1,hi-lo),top=v=>Number.isFinite(v)?Math.round((hi-v)/range*72)+4:40;let a=$('altStart'),b=$('altMax'),c=$('altEnd');[a,b,c].forEach(q=>q.classList.remove('high'));a.lastChild.textContent=m(s);b.lastChild.textContent=m(x);c.lastChild.textContent=m(end);a.style.left='0';a.style.top=top(s)+'px';b.style.left='50%';b.style.transform='translateX(-50%)';b.style.top=top(x)+'px';b.style.display=x>Math.max(s,end)?'block':'none';c.style.right='0';c.style.top=top(end)+'px';let high=b.style.display!='none'&&x>=hi?b:(s>=end?a:c);high.classList.add('high')}
-async function loadStatus(){try{let s=await(await fetch('/api/user/status')).json();$('status').textContent=`mode: ${s.mode}\nssid: ${s.ssid||'(none)'}\nip: ${s.ip_address||'(none)'}\n`+versionText(s.firmware_version);if(Number.isFinite(Number(s.battery_percent))){let p=Math.max(0,Math.min(100,Number(s.battery_percent)));$('batteryFill').style.width=p+'%';$('batteryText').textContent=p+'%';$('batteryCharge').textContent=s.battery_charging?'Charging':'Not charging'}else $('batteryBox').style.display='none';$('syncText').textContent=s.log_sync_complete?'Complete':(s.log_sync_total?`${s.log_sync_uploaded||0}/${s.log_sync_total} uploaded`:'--')}catch(e){$('status').textContent='Unable to read status.'}}
+function updateLine(t){let s=$('status'),u=$('updateStatus');if(!u){u=document.createElement('div');u.id='updateStatus';u.className='update-line';s.appendChild(u)}u.textContent=t||'';u.style.display=t?'block':'none'}async function checkFirmwareUpdate(){if(firmwareCheckRequested)return;firmwareCheckRequested=true;updateLine('Checking update...');try{let d=await(await fetch('/api/firmware/update-status')).json();if(!d.checked){updateLine('');return}if(d.error){updateLine('Update check failed');return}updateLine(d.available?'Update Available':'Up to date')}catch(e){updateLine('Update check failed')}}async function loadStatus(){try{let s=await(await fetch('/api/user/status')).json(),st=$('status');st.textContent=`mode: ${s.mode}\nssid: ${s.ssid||'(none)'}\nip: ${s.ip_address||'(none)'}\n`+versionText(s.firmware_version);if(s.mode=='network')checkFirmwareUpdate();if(Number.isFinite(Number(s.battery_percent))){let p=Math.max(0,Math.min(100,Number(s.battery_percent)));$('batteryFill').style.width=p+'%';$('batteryText').textContent=p+'%';$('batteryCharge').textContent=s.battery_charging?'Charging':'Not charging'}else $('batteryBox').style.display='none';$('syncText').textContent=s.log_sync_complete?'Complete':(s.log_sync_total?`${s.log_sync_uploaded||0}/${s.log_sync_total} uploaded`:'--')}catch(e){$('status').textContent='Unable to read status.'}}
 async function loadLogbook(){try{let d=await(await fetch('/api/logbook')).json();$('logCount').textContent=d.count||0;$('openLogbook').disabled=!d.count;$('logLatest').textContent=d.latest&&d.latest.start_time_local?logDateTime(d.latest.start_time_local,d.time_12h):(d.count?'Unknown':'No flights')}catch(e){$('logLatest').textContent='Unavailable';$('openLogbook').disabled=true}}
 async function loadLogEntry(path){msg('logDetailMsg','Loading...');let url='/api/logbook/entry'+(path?'?path='+encodeURIComponent(path):'');try{let d=await(await fetch(url)).json();if(!d.ok)throw new Error();let e=d.entry;logState={prev:d.previous_path||'',next:d.next_path||'',path:e.path||''};$('logPage').textContent=(d.position||'--')+'/'+(d.total||'--');$('logPrev').disabled=!logState.next;$('logNext').disabled=!logState.prev;$('flightTime').textContent=logDateTime(e.start_time_local,d.time_12h)||'Time unknown';$('flightDuration').textContent='Duration: '+dur(e.duration_seconds);renderAlt(e);$('climbMax').textContent=ms(e.max_climb_rate_mps);$('sinkMax').textContent=ms(e.max_sink_rate_mps);let rows=[['Max Speed',kph(e.max_ground_speed_mps)],['Path Dist',dist(e.path_distance_m)],['Straight Dist',dist(e.straight_line_distance_m)],['Accel',(good(e.min_accel_g)&&good(e.max_accel_g)?Number(e.min_accel_g).toFixed(1)+' / '+Number(e.max_accel_g).toFixed(1)+' G':'--')],['Temp',(good(e.min_temperature_c)&&good(e.max_temperature_c)?Math.round(Number(e.min_temperature_c))+' / '+Math.round(Number(e.max_temperature_c))+' C':'--')]];if(e.max_wind_valid)rows.push(['Wind',kph(e.max_wind_speed_mps)+' '+Math.round(e.max_wind_direction_from_deg)+' deg']);$('flightMetrics').innerHTML=rows.map(r=>`<div class=mini-row><span>${r[0]}</span><strong>${r[1]}</strong></div>`).join('');$('trackInfo').textContent=(e.track_saved?'Track: '+(e.track_path||'saved'):'No track file')+(e.flight_id?' | ID: '+e.flight_id:'');msg('logDetailMsg','')}catch(x){msg('logDetailMsg','Unable to load log.')}}
 async function loadProfiles(){try{profiles=await(await fetch('/api/profiles')).json();normalize();msg('pilotMsg','');msg('gliderMsg','');render()}catch(e){msg('pilotMsg','Unable to read profiles.')}}
@@ -805,6 +826,68 @@ loadStatus();loadProfiles();loadLogbook();
     json += power_info.USBinput ? "true" : "false";
     json += ",\"battery_mv\":";
     json += power_info.batteryMV;
+    json += "}";
+    sendNoStoreHeaders(target);
+    target.send(200, "application/json", json);
+  }
+
+  void sendFirmwareUpdateStatus(WebServer& target) {
+    if (!user_app_enabled) {
+      target.send(404, "application/json", "{\"checked\":false,\"error\":\"inactive\"}");
+      return;
+    }
+
+    if (user_app_using_leaf_wifi || WiFi.status() != WL_CONNECTED) {
+      target.send(200, "application/json",
+                  "{\"checked\":false,\"available\":false,\"reason\":\"network_unavailable\"}");
+      return;
+    }
+
+    if (!firmware_update_check_complete) {
+      firmware_update_heap_before = ESP.getFreeHeap();
+      firmware_update_max_alloc_before = ESP.getMaxAllocHeap();
+      Serial.printf("[OTA] Web app version check heap before: free=%lu maxAlloc=%lu\n",
+                    static_cast<unsigned long>(firmware_update_heap_before),
+                    static_cast<unsigned long>(firmware_update_max_alloc_before));
+      heap_monitor::record("firmware-check-start");
+      try {
+        firmware_update_latest_tag = getLatestTagVersion();
+        firmware_update_available =
+            LeafVersionInfo::otaAlwaysUpdate() ||
+            firmware_update_latest_tag != LeafVersionInfo::tagVersion();
+        firmware_update_error = "";
+      } catch (const std::runtime_error& e) {
+        firmware_update_latest_tag = "";
+        firmware_update_available = false;
+        firmware_update_error = e.what();
+      }
+      firmware_update_check_complete = true;
+      heap_monitor::record("firmware-check-end");
+      firmware_update_heap_after = ESP.getFreeHeap();
+      firmware_update_max_alloc_after = ESP.getMaxAllocHeap();
+      Serial.printf(
+          "[OTA] Web app version check heap after: free=%lu maxAlloc=%lu available=%u error=%s\n",
+          static_cast<unsigned long>(firmware_update_heap_after),
+          static_cast<unsigned long>(firmware_update_max_alloc_after),
+          firmware_update_available ? 1 : 0, firmware_update_error.c_str());
+    }
+
+    String json = "{\"checked\":true,\"available\":";
+    json += firmware_update_available ? "true" : "false";
+    json += ",\"current_tag\":\"";
+    json += jsonEscape(LeafVersionInfo::tagVersion());
+    json += "\",\"latest_tag\":\"";
+    json += jsonEscape(firmware_update_latest_tag);
+    json += "\",\"error\":\"";
+    json += jsonEscape(firmware_update_error);
+    json += "\",\"heap_before\":";
+    json += firmware_update_heap_before;
+    json += ",\"heap_after\":";
+    json += firmware_update_heap_after;
+    json += ",\"max_alloc_before\":";
+    json += firmware_update_max_alloc_before;
+    json += ",\"max_alloc_after\":";
+    json += firmware_update_max_alloc_after;
     json += "}";
     sendNoStoreHeaders(target);
     target.send(200, "application/json", json);
@@ -1072,6 +1155,8 @@ loadStatus();loadProfiles();loadLogbook();
         user_app_route_status_count++;
         sendUserStatus(user_server);
       });
+      user_server.on("/api/firmware/update-status", HTTP_GET,
+                     []() { sendFirmwareUpdateStatus(user_server); });
       user_server.on("/api/profiles", HTTP_GET, []() {
         user_app_route_profiles_get_count++;
         sendProfiles(user_server);
@@ -1398,6 +1483,7 @@ void webserver_enable_user_app(bool useLeafWifi) {
 
   heap_monitor::clear();
   resetUserAppCounters();
+  resetFirmwareUpdateCheck();
   heap_monitor::record("enable-start");
   if (useLeafWifi || WiFi.status() != WL_CONNECTED) {
     leaf_wifi::prepareForLeafAccessPoint();
@@ -1425,6 +1511,7 @@ void webserver_enable_wifi_setup() {
   pauseServicesForUserApp();
 
   wifi_setup_cycle++;
+  resetFirmwareUpdateCheck();
   wifi_setup_started_ms = millis();
   logWifiSetupTiming("start");
   leaf_wifi::prepareForUserWifiSetupFast();
