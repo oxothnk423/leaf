@@ -14,8 +14,7 @@
 // Lifty Air Thermal Sniffer
 #define LIFTY_AIR_MAX -8  // 0.1 m/s - sinking less than this will trigger
 // Climb settings
-#define CLIMB_AVERAGE_MAX 3  // units of 10 seconds, so max 30 sec averaging
-#define CLIMB_START_MAX 20   // cm/s when climb note begins
+#define CLIMB_START_MAX 20  // cm/s when climb note begins
 
 // System
 // Display Contrast
@@ -32,11 +31,12 @@
 #define DEF_SINK_ALARM -2.5f    // m/s sink
 #define DEF_SINK_ALARM_UNITS 0  // 0 = m/s, 1 = fpm
 #define DEF_VARIO_SENSE 3       // 3 = avg of 6 samples (6/20 of a second)
-#define DEF_CLIMB_AVERAGE 1     // in units of 5-seconds.  (def = 1 = 5sec)
-#define DEF_CLIMB_START 5       // cm/s when climb note begins
-#define DEF_VOLUME_VARIO 2      // 0=off, 1=low, 2=med, 3=high
-#define DEF_QUIET_MODE 0        // 0 = off, 1 = on (ON means no beeping until flight recording)
-#define DEF_VOLUME_SHORTCUT 0   // 0 = disabled, 1 = enabled
+#define DEF_CLIMB_DISPLAY_AVERAGE 0
+#define DEF_GLIDE_AVERAGE 10
+#define DEF_CLIMB_START 5      // cm/s when climb note begins
+#define DEF_VOLUME_VARIO 2     // 0=off, 1=low, 2=med, 3=high
+#define DEF_QUIET_MODE 0       // 0 = off, 1 = on (ON means no beeping until flight recording)
+#define DEF_VOLUME_SHORTCUT 0  // 0 = disabled, 1 = enabled
 // 0 == linear pitch interpolation; 1 == major C-scale for climb, minor scale for descent
 #define DEF_VARIO_TONES 0
 // In units of 10 cm/s (a sink rate of only 30cm/s means the air itself is going up).  '0' is off.
@@ -125,7 +125,10 @@ class Settings {
   // Vario Settings
   float vario_sinkAlarm;
   bool vario_sinkAlarm_units;
-  int8_t vario_climbAvg;
+  // Additional averaging applied only to the numerical climb display, in seconds.
+  int8_t vario_climbDisplayAverage;
+  // Common averaging window for the ground-speed and sink components of displayed glide ratio.
+  int8_t glideAverageSeconds;
   int8_t vario_climbStart;
   int8_t vario_volume;
   bool volumeShortcut;
@@ -237,7 +240,8 @@ setting | samples | time avg
   void adjustSinkAlarm(Button dir);
   void adjustSinkAlarmUnits(bool units);
   void adjustVarioAverage(Button dir);
-  void adjustClimbAverage(Button dir);
+  void adjustClimbDisplayAverage(Button dir);
+  void adjustGlideAverage(Button dir);
   void adjustClimbStart(Button dir);
   void adjustLiftyAir(Button dir);
   void adjustVolumeVario(Button dir);

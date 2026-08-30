@@ -93,6 +93,7 @@ void simplePage_draw() {
 
     // TODO: display lack of climb rate differently than 0
     int32_t climbRate = baro.climbRateFilteredValid() ? baro.climbRateFiltered() : 0;
+    const int32_t displayClimbRate = baro.climbRateFilteredValid() ? baro.climbRateForDisplay() : 0;
     display_varioBar(topOfFrame, varioBarClimbHeight, varioBarSinkHeight, varioBarWidth, climbRate);
 
     // Climb
@@ -100,7 +101,7 @@ void simplePage_draw() {
     uint8_t climbBoxY = topOfFrame + varioBarClimbHeight - climbBoxHeight / 2;
     display_climbRatePointerBox(varioBarWidth + 9, climbBoxY, 75, climbBoxHeight,
                                 16);  // x, y, w, h, triangle size
-    display_climbRate(11, climbBoxY + 31, leaf_28h, climbRate);
+    display_climbRate(11, climbBoxY + 31, leaf_28h, displayClimbRate);
     u8g2.setDrawColor(0);
     u8g2.drawPixel(varioBarWidth + 9,
                    climbBoxY);  // one pixel corner needs trimmed due to interaction with triangle

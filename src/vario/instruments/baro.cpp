@@ -21,9 +21,7 @@
 #include "utils/flags_enum.h"
 #include "utils/magic_enum.h"
 
-// number of seconds for average climb rate (this is used for smoother data in places like
-// glide ratio, where rapidly fluctuating glide numbers aren't as useful as a several-second
-// average)
+// Number of seconds for the legacy long-term diagnostic climb average.
 constexpr uint32_t CLIMB_AVERAGE_S = 4;
 
 // number of seconds to average the climb rate before declaring that the averaged value is valid
@@ -128,6 +126,11 @@ void Barometer::init(void) {
   validClimbRate1SecAverage_ = false;
   climbFilter.reset();
   climb1SecFilter.reset();
+  climbDisplayHistory_.fill(0);
+  climbDisplayHistoryCount_ = 0;
+  climbDisplayHistoryIndex_ = 0;
+  climbDisplayBlockSum_ = 0;
+  climbDisplayBlockCount_ = 0;
   climbRateAverage_ = 0;
   nInitSamplesRemaining_ = CLIMB_AVERAGE_INIT_S * BARO_SAMPLES_PER_SECOND;
   startupDiscardSamplesRemaining_ = BARO_STARTUP_DISCARD_SAMPLES;
@@ -275,6 +278,29 @@ bool Barometer::climbRateFilteredValid() {
   return true;
 }
 
+int32_t Barometer::climbRateForDisplay() {
+  const int32_t current = climbRateFiltered();
+  if (climbDisplayAverageSeconds_ == 0 || climbDisplayHistoryCount_ == 0) return current;
+
+  const size_t requestedSamples = climbDisplayAverageSeconds_ * CLIMB_DISPLAY_SAMPLES_PER_SECOND;
+  const size_t validHistoryCount =
+      min<size_t>(climbDisplayHistoryCount_, CLIMB_DISPLAY_HISTORY_SIZE);
+  const size_t historyWriteIndex = climbDisplayHistoryIndex_ % CLIMB_DISPLAY_HISTORY_SIZE;
+  const size_t samplesToAverage = min(requestedSamples, validHistoryCount);
+  int32_t sum = 0;
+  for (size_t i = 0; i < samplesToAverage; ++i) {
+    const size_t historyIndex =
+        (historyWriteIndex + CLIMB_DISPLAY_HISTORY_SIZE - 1 - i) % CLIMB_DISPLAY_HISTORY_SIZE;
+    sum += climbDisplayHistory_[historyIndex];
+  }
+  return sum / static_cast<int32_t>(samplesToAverage);
+}
+
+void Barometer::setClimbDisplayAverageSeconds(uint8_t seconds) {
+  climbDisplayAverageSeconds_ =
+      seconds > CLIMB_DISPLAY_AVERAGE_MAX_SECONDS ? CLIMB_DISPLAY_AVERAGE_MAX_SECONDS : seconds;
+}
+
 int32_t Barometer::climbRate1SecAverage() {
   assertState("Barometer::climbRate1SecAverage", State::Ready);
   if (!validClimbRate1SecAverage_) {
@@ -355,6 +381,7 @@ void Barometer::filterClimb() {
   }
   climbRateFiltered_ = (int32_t)(climbFilterAvg * 100);
   validClimbRateFiltered_ = true;
+  updateClimbDisplayHistory();
 
   climb1SecFilter.update(climbRateRaw_);
   const float climb1SecAvg = climb1SecFilter.getAverage();
@@ -375,7 +402,7 @@ void Barometer::filterClimb() {
     nInitSamplesRemaining_ = 0;
   } else {
     // now calculate the longer-running average climb value
-    // (this is a smoother, slower-changing value for things like glide ratio, etc)
+    // (this is a smoother, slower-changing diagnostic value)
     uint32_t total_samples = CLIMB_AVERAGE_S * BARO_SAMPLES_PER_SECOND;
 
     climbRateAverage_ =
@@ -417,6 +444,25 @@ void Barometer::filterClimb() {
       file.close();
     }
   }
+}
+
+void Barometer::updateClimbDisplayHistory() {
+  constexpr uint8_t BARO_SAMPLES_PER_DISPLAY_SAMPLE =
+      BARO_SAMPLES_PER_SECOND / CLIMB_DISPLAY_SAMPLES_PER_SECOND;
+
+  climbDisplayBlockSum_ += climbRateFiltered_;
+  climbDisplayBlockCount_++;
+  if (climbDisplayBlockCount_ < BARO_SAMPLES_PER_DISPLAY_SAMPLE) return;
+
+  const int32_t blockAverage = climbDisplayBlockSum_ / climbDisplayBlockCount_;
+  // Normalize before dereferencing so even a corrupted retained index cannot become a wild write.
+  if (climbDisplayHistoryIndex_ >= CLIMB_DISPLAY_HISTORY_SIZE) climbDisplayHistoryIndex_ = 0;
+  climbDisplayHistory_[climbDisplayHistoryIndex_] =
+      static_cast<int16_t>(constrain(blockAverage, -32768L, 32767L));
+  climbDisplayHistoryIndex_ = (climbDisplayHistoryIndex_ + 1) % CLIMB_DISPLAY_HISTORY_SIZE;
+  if (climbDisplayHistoryCount_ < CLIMB_DISPLAY_HISTORY_SIZE) climbDisplayHistoryCount_++;
+  climbDisplayBlockSum_ = 0;
+  climbDisplayBlockCount_ = 0;
 }
 
 // ^^^ Device reading & data processing ^^^

@@ -70,6 +70,7 @@ void thermalPage_draw() {
 
     // TODO: display lack of climb rate differently than 0
     int32_t climbRate = baro.climbRateFilteredValid() ? baro.climbRateFiltered() : 0;
+    const int32_t displayClimbRate = baro.climbRateFilteredValid() ? baro.climbRateForDisplay() : 0;
     display_varioBar(topOfFrame, varioBarClimbHeight, varioBarSinkHeight, varioBarWidth, climbRate);
 
     // Altitude
@@ -97,7 +98,7 @@ void thermalPage_draw() {
     uint8_t climbBoxY = topOfFrame + varioBarClimbHeight - climbBoxHeight / 2;
     display_climbRatePointerBox(varioBarWidth, climbBoxY, 76, climbBoxHeight,
                                 13);  // x, y, w, h, triangle size
-    display_climbRate(20, climbBoxY + 24, leaf_21h, climbRate);
+    display_climbRate(20, climbBoxY + 24, leaf_21h, displayClimbRate);
     u8g2.setDrawColor(0);
     u8g2.setFont(leaf_5h);
     u8g2.print(" ");  // put a space, but using a small font so the space isn't too wide

@@ -6,8 +6,6 @@
 
 #include "navigation/nav_ids.h"
 
-#define AVERAGE_SPEED_SAMPLES 5
-
 // Waypoint definition and memory allocation
 #define defaultWaypointRadius 150  // meters radius to count as "reaching/crossing" a waypoint
 #define maxRoutes 10
@@ -185,9 +183,6 @@ class Navigator {
 
   // (gps measured) Altitude in cm above current waypoint
   int32_t altAboveWaypoint = 0;
-
-  // keep a running average speed, to smooth out glide ratio and time-remaning calculations.
-  float averageSpeed = 0;
 
   // glide ratio from current position to active waypoint
   float glideToActive = 0;

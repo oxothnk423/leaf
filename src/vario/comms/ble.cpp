@@ -3,12 +3,14 @@
 #include <Arduino.h>
 #include <algorithm>
 #include <atomic>
+#include <type_traits>
 
 #include <NimBLEDevice.h>
 #include "TinyGPSPlus.h"
 #include "comms/fanet_radio.h"
 #include "comms/webserver.h"
 #include "diagnostics/diagnostic_logs.h"
+#include "diagnostics/fatal_error.h"
 #include "diagnostics/heap_monitor.h"
 #include "esp_heap_caps.h"
 #include "etl/string.h"
@@ -50,17 +52,6 @@ namespace {
     pendingBleDiagnosticEvents.fetch_or(static_cast<uint32_t>(event), std::memory_order_relaxed);
   }
 }  // namespace
-
-/// @brief Internal struct to be passed in the message queues to wakup the BLE task
-struct WakeupMessage {
-  enum Reason { PERIODIC, FANET_RX, GPS_GPGGA, GPS_GPRMC } reason;
-  using MessageVariant = etl::variant<NMEAString, FanetPacket>;
-  MessageVariant message;
-
-  WakeupMessage(Reason reason, MessageVariant message) : reason(reason), message(message) {}
-  WakeupMessage(Reason reason) : reason(reason) {}
-  WakeupMessage() { reason = Reason::PERIODIC; }
-};
 
 class ServerCallbacks : public NimBLEServerCallbacks {
   // Not sure we need this.  Taken from the demo
@@ -126,11 +117,22 @@ void BLE::setup() {
    */
   pAdvertising->enableScanResponse(true);
 
-  // Setup the FreeRTOS Tasks and Timers associated with this module
-  // Create a queue the size of a couple of WakeupMessage length.
-  // If say a GPS and periodic send request comes in too close together
-  // one of them may be dropped for this cycle.
-  xQueue = xQueueCreate(4, sizeof(WakeupMessage));
+  // FreeRTOS queues byte-copy their items, so queue pointers to preconstructed C++ objects rather
+  // than WakeupMessage itself. In particular, etl::string contains a pointer to its inline buffer.
+  static_assert(std::is_trivially_copyable_v<WakeupMessage*>);
+  xQueue = xQueueCreate(QUEUE_CAPACITY, sizeof(WakeupMessage*));
+  xFreeQueue = xQueueCreate(QUEUE_CAPACITY, sizeof(WakeupMessage*));
+  if (xQueue == nullptr || xFreeQueue == nullptr) {
+    fatalError("Failed to create BLE message queues");
+    return;
+  }
+  for (WakeupMessage& slot : messagePool_) {
+    WakeupMessage* slotPointer = &slot;
+    if (xQueueSend(xFreeQueue, &slotPointer, 0) != pdTRUE) {
+      fatalError("Failed to initialize BLE message pool");
+      return;
+    }
+  }
   heap_monitor::checkpoint("ble-queue");
 
   // Create the freeRTOS Task for handling Bluetooth low energy IO
@@ -170,7 +172,9 @@ void BLE::stop() {
 }
 
 void BLE::end() {
-  if (pServer == nullptr && xTimer == nullptr && xTask == nullptr && xQueue == nullptr) return;
+  if (pServer == nullptr && xTimer == nullptr && xTask == nullptr && xQueue == nullptr &&
+      xFreeQueue == nullptr)
+    return;
 
   heap_monitor::checkpoint("ble-end-before");
   if (pAdvertising != nullptr && started) {
@@ -191,6 +195,10 @@ void BLE::end() {
   if (xQueue != nullptr) {
     vQueueDelete(xQueue);
     xQueue = nullptr;
+  }
+  if (xFreeQueue != nullptr) {
+    vQueueDelete(xFreeQueue);
+    xFreeQueue = nullptr;
   }
   heap_monitor::registerTask("ble", nullptr);
 
@@ -215,13 +223,11 @@ void BLE::on_receive(const GpsMessage& msg) {
   // If the GPS message is a GPGGA or GPRMC, we store it in the buffers
   // for the next periodic send.
   if (msg.nmea.substr(0, 6) == "$GPGGA" || msg.nmea.substr(0, 6) == "$GNGGA") {
-    WakeupMessage message(WakeupMessage::Reason::GPS_GPGGA, msg.nmea);
-    if (xQueueSend(BLE::get().xQueue, &message, 0) != pdTRUE) {
+    if (!enqueue(WakeupReason::GPS_GPGGA, msg.nmea)) {
       markBleDiagnosticEvent(BLE_DIAG_GPS_QUEUE_FULL);
     }
   } else if (msg.nmea.substr(0, 6) == "$GPRMC" || msg.nmea.substr(0, 6) == "$GNRMC") {
-    WakeupMessage message(WakeupMessage::Reason::GPS_GPRMC, msg.nmea);
-    if (xQueueSend(BLE::get().xQueue, &message, 0) != pdTRUE) {
+    if (!enqueue(WakeupReason::GPS_GPRMC, msg.nmea)) {
       markBleDiagnosticEvent(BLE_DIAG_GPS_QUEUE_FULL);
     }
   }
@@ -231,8 +237,7 @@ void BLE::on_receive(const FanetPacket& msg) {
   // Short circuit if not initialized
   if (pServer == nullptr) return;
 
-  WakeupMessage message(WakeupMessage::Reason::FANET_RX, msg);
-  if (xQueueSend(BLE::get().xQueue, &message, 0) != pdTRUE) {
+  if (!enqueue(WakeupReason::FANET_RX, msg)) {
     markBleDiagnosticEvent(BLE_DIAG_FANET_QUEUE_FULL);
   }
 }
@@ -240,37 +245,47 @@ void BLE::on_receive(const FanetPacket& msg) {
 // FreeRTOS Task
 void BLE::bleTask(void* args) {
   BLE* ble = (BLE*)args;  // Bluetooth instance that started this task
-  WakeupMessage message;  // Reason for waking up, message to send out
   while (true) {
     // Sleep until there's some message to send out.
-    xQueueReceive(ble->xQueue, &message, portMAX_DELAY);
+    WakeupMessage* message = nullptr;
+    if (xQueueReceive(ble->xQueue, &message, portMAX_DELAY) != pdTRUE || message == nullptr) {
+      continue;
+    }
     ble->processDiagnostics();
-    switch (message.reason) {
-      case WakeupMessage::Reason::PERIODIC:
+    switch (message->reason) {
+      case WakeupReason::PERIODIC:
         // Periodic wakeup to send out the last known Vario & Baro data.
         ble->sendVarioUpdate();
         break;
-      case WakeupMessage::Reason::FANET_RX:
-        ble->sendFanetUpdate(etl::get<FanetPacket>(message.message));
+      case WakeupReason::FANET_RX:
+        ble->sendFanetUpdate(etl::get<FanetPacket>(message->message));
         break;
-      case WakeupMessage::Reason::GPS_GPGGA: {
+      case WakeupReason::GPS_GPGGA: {
         if (millis() - ble->lastGpsGgaMs < 500) {
           // If we received a GPGGA too soon, skip it
-          continue;
+          break;
         }
-        auto& gpsGpggaBuffer = etl::get<NMEAString>(message.message);
+        auto& gpsGpggaBuffer = etl::get<NMEAString>(message->message);
+        if (!ownsInlineBuffer(gpsGpggaBuffer)) {
+          fatalError("BLE GGA queue item does not own its string buffer");
+          break;
+        }
         ble->addChecksumToNMEA(gpsGpggaBuffer);
         ble->pCharacteristic->setValue((const uint8_t*)gpsGpggaBuffer.c_str(),
                                        gpsGpggaBuffer.size());
         ble->recordNusNotifyResult(ble->pCharacteristic->notify());
         ble->lastGpsGgaMs = millis();
       } break;
-      case WakeupMessage::Reason::GPS_GPRMC: {
+      case WakeupReason::GPS_GPRMC: {
         if (millis() - ble->lastGpsGprmcMs < 500) {
           // If we received a GPRMC too soon, skip it
-          continue;
+          break;
         }
-        auto& gpsGprmcBuffer = etl::get<NMEAString>(message.message);
+        auto& gpsGprmcBuffer = etl::get<NMEAString>(message->message);
+        if (!ownsInlineBuffer(gpsGprmcBuffer)) {
+          fatalError("BLE RMC queue item does not own its string buffer");
+          break;
+        }
         ble->addChecksumToNMEA(gpsGprmcBuffer);
         ble->pCharacteristic->setValue((const uint8_t*)gpsGprmcBuffer.c_str(),
                                        gpsGprmcBuffer.size());
@@ -280,17 +295,62 @@ void BLE::bleTask(void* args) {
         break;
       }
     }
+    ble->release(message);
   }
 }
 
 void BLE::timerCallback(TimerHandle_t timer) {
   // Send a message on the queue that it's time to do a periodic task send
   // (wake up the BLE task)
-  if (BLE::get().xQueue == nullptr) return;
-  WakeupMessage message(WakeupMessage::Reason::PERIODIC);
-  if (xQueueSend(BLE::get().xQueue, &message, 0) != pdTRUE) {
+  if (!BLE::get().enqueue(WakeupReason::PERIODIC)) {
     markBleDiagnosticEvent(BLE_DIAG_PERIODIC_QUEUE_FULL);
   }
+}
+
+bool BLE::enqueue(WakeupReason reason) {
+  if (xQueue == nullptr || xFreeQueue == nullptr) return false;
+  WakeupMessage* message = nullptr;
+  if (xQueueReceive(xFreeQueue, &message, 0) != pdTRUE || message == nullptr) return false;
+  message->reason = reason;
+  if (xQueueSend(xQueue, &message, 0) == pdTRUE) return true;
+  release(message);
+  return false;
+}
+
+bool BLE::enqueue(WakeupReason reason, const NMEAString& nmea) {
+  if (xQueue == nullptr || xFreeQueue == nullptr) return false;
+  WakeupMessage* message = nullptr;
+  if (xQueueReceive(xFreeQueue, &message, 0) != pdTRUE || message == nullptr) return false;
+  message->reason = reason;
+  message->message = nmea;
+  if (xQueueSend(xQueue, &message, 0) == pdTRUE) return true;
+  release(message);
+  return false;
+}
+
+bool BLE::enqueue(WakeupReason reason, const FanetPacket& packet) {
+  if (xQueue == nullptr || xFreeQueue == nullptr) return false;
+  WakeupMessage* message = nullptr;
+  if (xQueueReceive(xFreeQueue, &message, 0) != pdTRUE || message == nullptr) return false;
+  message->reason = reason;
+  message->message = packet;
+  if (xQueueSend(xQueue, &message, 0) == pdTRUE) return true;
+  release(message);
+  return false;
+}
+
+void BLE::release(WakeupMessage* message) {
+  if (message == nullptr || xFreeQueue == nullptr) return;
+  if (xQueueSend(xFreeQueue, &message, 0) != pdTRUE) {
+    fatalError("Failed to return BLE message to pool");
+  }
+}
+
+bool BLE::ownsInlineBuffer(const NMEAString& nmea) {
+  const uintptr_t objectStart = reinterpret_cast<uintptr_t>(&nmea);
+  const uintptr_t objectEnd = objectStart + sizeof(nmea);
+  const uintptr_t buffer = reinterpret_cast<uintptr_t>(nmea.data());
+  return buffer >= objectStart && buffer < objectEnd;
 }
 
 void BLE::sendVarioUpdate() {

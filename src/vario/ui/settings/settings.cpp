@@ -49,7 +49,6 @@ bool Settings::init() {
     }
     baro.setFilterSamples(nSamples);
   });
-
   loadDefaults();  // load defaults regardless, but we'll overwrite
                    // these with saved user settings (if available)
 
@@ -80,6 +79,8 @@ bool Settings::init() {
     retrieve();
     boot_firstTime = false;
   }
+  baro.setClimbDisplayAverageSeconds(vario_climbDisplayAverage);
+  gps.setGlideAverageSeconds(glideAverageSeconds);
   return boot_firstTime;
 }
 
@@ -161,7 +162,8 @@ void Settings::loadDefaults() {
   vario_sinkAlarm = DEF_SINK_ALARM;
   vario_sinkAlarm_units = DEF_SINK_ALARM_UNITS;
   vario_sensitivity.loadDefault();
-  vario_climbAvg = DEF_CLIMB_AVERAGE;
+  vario_climbDisplayAverage = DEF_CLIMB_DISPLAY_AVERAGE;
+  glideAverageSeconds = DEF_GLIDE_AVERAGE;
   vario_climbStart = DEF_CLIMB_START;
   vario_volume = DEF_VOLUME_VARIO;
   volumeShortcut = DEF_VOLUME_SHORTCUT;
@@ -244,7 +246,12 @@ void Settings::retrieve() {
   vario_sinkAlarm = leafPrefs.getFloat("SINK_ALARM_VAL", DEF_SINK_ALARM);
   vario_sinkAlarm_units = leafPrefs.getBool("SINK_ALARM_UNIT", DEF_SINK_ALARM_UNITS);
   vario_sensitivity.readFrom(leafPrefs);
-  vario_climbAvg = leafPrefs.getChar("CLIMB_AVERAGE");
+  vario_climbDisplayAverage = leafPrefs.getChar("climbDispAvg", DEF_CLIMB_DISPLAY_AVERAGE);
+  if (vario_climbDisplayAverage < 0 || vario_climbDisplayAverage > 5)
+    vario_climbDisplayAverage = DEF_CLIMB_DISPLAY_AVERAGE;
+  glideAverageSeconds = leafPrefs.getChar("glideAvgSec", DEF_GLIDE_AVERAGE);
+  if (glideAverageSeconds < 0 || glideAverageSeconds > 20) glideAverageSeconds = DEF_GLIDE_AVERAGE;
+  glideAverageSeconds -= glideAverageSeconds % 2;
   vario_climbStart = leafPrefs.getChar("CLIMB_START");
   vario_volume = leafPrefs.getChar("VOLUME_VARIO");
   volumeShortcut = leafPrefs.getBool("VOL_SHORTCUT", DEF_VOLUME_SHORTCUT);
@@ -344,7 +351,8 @@ void Settings::save() {
   leafPrefs.putFloat("SINK_ALARM_VAL", vario_sinkAlarm);
   leafPrefs.putBool("SINK_ALARM_UNIT", vario_sinkAlarm_units);
   vario_sensitivity.putInto(leafPrefs);
-  leafPrefs.putChar("CLIMB_AVERAGE", vario_climbAvg);
+  leafPrefs.putChar("climbDispAvg", vario_climbDisplayAverage);
+  leafPrefs.putChar("glideAvgSec", glideAverageSeconds);
   leafPrefs.putChar("CLIMB_START", vario_climbStart);
   leafPrefs.putChar("VOLUME_VARIO", vario_volume);
   leafPrefs.putBool("VOL_SHORTCUT", volumeShortcut);
@@ -540,23 +548,44 @@ void Settings::adjustVarioAverage(Button dir) {
   speaker.playSound(sound);
 }
 
-// climb average goes between 0 and CLIMB_AVERAGE_MAX
-void Settings::adjustClimbAverage(Button dir) {
+void Settings::adjustClimbDisplayAverage(Button dir) {
   sound_t sound = fx::neutral;
 
   if (dir == Button::RIGHT) {
     sound = fx::increase;
-    if (++vario_climbAvg >= CLIMB_AVERAGE_MAX) {
-      vario_climbAvg = CLIMB_AVERAGE_MAX;
+    if (vario_climbDisplayAverage < 5)
+      vario_climbDisplayAverage++;
+    else
       sound = fx::doubleClick;
-    }
   } else {
     sound = fx::decrease;
-    if (--vario_climbAvg <= 0) {
-      vario_climbAvg = 0;
+    if (vario_climbDisplayAverage > 0)
+      vario_climbDisplayAverage--;
+    else
       sound = fx::doubleClick;
-    }
   }
+  baro.setClimbDisplayAverageSeconds(vario_climbDisplayAverage);
+  speaker.playSound(sound);
+}
+
+void Settings::adjustGlideAverage(Button dir) {
+  const int8_t before = glideAverageSeconds;
+  int8_t after = before;
+  sound_t sound = fx::neutral;
+
+  if (dir == Button::RIGHT) {
+    sound = fx::increase;
+    after = before + 2;
+    if (after > 20) after = 20;
+  } else {
+    sound = fx::decrease;
+    after = before - 2;
+    if (after < 0) after = 0;
+  }
+
+  glideAverageSeconds = after;
+  if (before == glideAverageSeconds) sound = fx::doubleClick;
+  gps.setGlideAverageSeconds(glideAverageSeconds);
   speaker.playSound(sound);
 }
 

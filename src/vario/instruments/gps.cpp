@@ -145,22 +145,70 @@ void LeafGPS::init(void) {
 }  // gps_init
 
 void LeafGPS::calculateGlideRatio() {
-  if (!baro.climbRateAverageValid()) {
+  if (!hasFreshGroundSpeed() || !baro.climbRateFilteredValid()) {
+    resetGlideHistory();
     glideRatio = 0;
     return;
   }
-  float climb = baro.climbRateAverage();
-  float speed = gps.speed.kmph();
 
-  if (climb == 0 || speed == 0) {
-    glideRatio = 0;
-  } else {
-    //             km per hour       / cm per sec * sec per hour / cm per km
-    glideRatio = navigator.averageSpeed /
-                 (-1 * climb * 3600 /
-                  100000);  // add -1 to invert climbrate because 'negative' is down (in climb), but
-                            // we want a standard glide ratio (ie 'gliding down') to be positive
+  const uint32_t speedCommitMs = millis() - gps.speed.age();
+  if (speedCommitMs != lastGroundSpeedCommitMs_ && baro.climbRate1SecAverageValid()) {
+    lastGroundSpeedCommitMs_ = speedCommitMs;
+    recordGlideSample();
   }
+
+  if (glideAverageSeconds_ == 0) {
+    const int32_t climbCms = baro.climbRateFiltered();
+    const float groundSpeedCms = gps.speed.mps() * 100.0f;
+    glideRatio = climbCms < 0 && groundSpeedCms > 0 ? groundSpeedCms / -climbCms : 0;
+    return;
+  }
+
+  const size_t validHistoryCount = min<size_t>(glideHistoryCount_, GLIDE_HISTORY_SIZE);
+  const size_t historyWriteIndex = glideHistoryIndex_ % GLIDE_HISTORY_SIZE;
+  const size_t samplesToAverage = min<size_t>(validHistoryCount, glideAverageSeconds_);
+  if (samplesToAverage == 0) {
+    glideRatio = 0;
+    return;
+  }
+
+  uint32_t speedSum = 0;
+  int32_t climbSum = 0;
+  for (size_t i = 0; i < samplesToAverage; ++i) {
+    const size_t historyIndex =
+        (historyWriteIndex + GLIDE_HISTORY_SIZE - 1 - i) % GLIDE_HISTORY_SIZE;
+    speedSum += glideHistory_[historyIndex].groundSpeedCms;
+    climbSum += glideHistory_[historyIndex].climbCms;
+  }
+  glideRatio = climbSum < 0 && speedSum > 0 ? static_cast<float>(speedSum) / -climbSum : 0;
+}
+
+void LeafGPS::recordGlideSample() {
+  int32_t groundSpeedCms = static_cast<int32_t>(gps.speed.mps() * 100.0f);
+  if (groundSpeedCms < 0) groundSpeedCms = 0;
+  if (groundSpeedCms > UINT16_MAX) groundSpeedCms = UINT16_MAX;
+
+  int32_t climbCms = baro.climbRate1SecAverage();
+  if (climbCms < INT16_MIN) climbCms = INT16_MIN;
+  if (climbCms > INT16_MAX) climbCms = INT16_MAX;
+
+  // Normalize before dereferencing so even a corrupted retained index cannot become a wild write.
+  if (glideHistoryIndex_ >= GLIDE_HISTORY_SIZE) glideHistoryIndex_ = 0;
+  glideHistory_[glideHistoryIndex_] = {static_cast<uint16_t>(groundSpeedCms),
+                                       static_cast<int16_t>(climbCms)};
+  glideHistoryIndex_ = (glideHistoryIndex_ + 1) % GLIDE_HISTORY_SIZE;
+  if (glideHistoryCount_ < GLIDE_HISTORY_SIZE) glideHistoryCount_++;
+}
+
+void LeafGPS::resetGlideHistory() {
+  glideHistoryCount_ = 0;
+  glideHistoryIndex_ = 0;
+  lastGroundSpeedCommitMs_ = 0;
+}
+
+void LeafGPS::setGlideAverageSeconds(uint8_t seconds) {
+  if (seconds > GLIDE_HISTORY_SIZE) seconds = GLIDE_HISTORY_SIZE;
+  glideAverageSeconds_ = seconds - seconds % 2;
 }
 
 void LeafGPS::updateFixInfo() {
@@ -199,7 +247,7 @@ void LeafGPS::on_receive(const GpsMessage& msg) {
   if (DEBUG_GPS) {
     Serial.printf("LeafGPS::on_receive %d %s\n", msg.nmea.length(), msg.nmea.c_str());
   }
-  bool newSentence;
+  bool newSentence = false;
   {
     GpsLockGuard mutex;  // Ensure we have a lock on write
     for (size_t i = 0; i < msg.nmea.length(); i++) {
