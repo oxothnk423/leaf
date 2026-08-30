@@ -17,6 +17,8 @@
 #ifndef gps_h
 #define gps_h
 
+#include <array>
+
 #include <TinyGPSPlus.h>
 #include "dispatch/message_sink.h"
 #include "dispatch/message_source.h"
@@ -98,6 +100,7 @@ class LeafGPS : public TinyGPSPlus, IMessageSource, public MessageSink<LeafGPS, 
   bool lastValidFix(GPSPositionSnapshot& snapshot) const;
 
   float getGlideRatio(void) { return glideRatio; }
+  void setGlideAverageSeconds(uint8_t seconds);
 
   // Cached version of the sat info for showing on display (this will be re-written each time a
   // total set of new sat info is available)
@@ -112,6 +115,8 @@ class LeafGPS : public TinyGPSPlus, IMessageSource, public MessageSink<LeafGPS, 
   void syncSystemClockIfNeeded();
 
   void calculateGlideRatio();
+  void recordGlideSample();
+  void resetGlideHistory();
 
   void testSats();
 
@@ -143,7 +148,18 @@ class LeafGPS : public TinyGPSPlus, IMessageSource, public MessageSink<LeafGPS, 
   // available
   etl::imessage_bus* bus_ = nullptr;
 
-  float glideRatio;
+  struct GlideSample {
+    uint16_t groundSpeedCms = 0;
+    int16_t climbCms = 0;
+  };
+  static_assert(sizeof(GlideSample) == 4);
+  static constexpr size_t GLIDE_HISTORY_SIZE = 20;
+  std::array<GlideSample, GLIDE_HISTORY_SIZE> glideHistory_{};
+  uint8_t glideHistoryCount_ = 0;
+  uint8_t glideHistoryIndex_ = 0;
+  uint32_t lastGroundSpeedCommitMs_ = 0;
+  uint8_t glideAverageSeconds_ = 10;
+  float glideRatio = 0;
 
   NMEAString nmeaBuffer = {'\0'};  // buffer for reading NMEA sentences
   int nmeaBufferIndex = 0;         // index into the buffer currently writing to

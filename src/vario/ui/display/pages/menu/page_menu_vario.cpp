@@ -16,16 +16,17 @@
 enum vario_menu_items {
   cursor_vario_back,
   cursor_vario_volume,
+  cursor_vario_volumeShortcut,
   // cursor_vario_tones,
   cursor_vario_quietmode,
 
   cursor_vario_sensitive,
-  // cursor_vario_climbavg,
+  cursor_vario_climbavg,
+  cursor_vario_glideavg,
 
   cursor_vario_climbstart,
   // cursor_vario_liftyair,
   cursor_vario_sinkalarm,
-  cursor_vario_volumeShortcut,
 };
 
 void VarioMenuPage::draw() {
@@ -37,7 +38,7 @@ void VarioMenuPage::draw() {
     // Menu Items
     uint8_t setting_name_x = 2;
     uint8_t setting_choice_x = 68;
-    uint8_t menu_items_y[] = {190, 40, 55, 70, 85, 100, 128 /*, 135, 150, 165*/};
+    uint8_t menu_items_y[] = {190, 40, 55, 70, 85, 100, 115, 130, 145};
 
     for (int i = 0; i <= cursor_max; i++) {
       const bool selected = i == cursor_position;
@@ -50,6 +51,10 @@ void VarioMenuPage::draw() {
           u8g2.setFont(leaf_icons);
           u8g2.print(char('I' + settings.vario_volume));
           u8g2.setFont(leaf_6x12);
+          break;
+        case cursor_vario_volumeShortcut:
+          u8g2.setCursor(80, menu_items_y[i]);
+          menu_ui::printGlyph(settings.volumeShortcut ? menu_ui::ICON_ON : menu_ui::ICON_OFF);
           break;
         /*
         case cursor_vario_tones:
@@ -72,12 +77,24 @@ void VarioMenuPage::draw() {
           u8g2.print(' ');
           u8g2.print(settings.vario_sensitivity);
           break;
-        /*
         case cursor_vario_climbavg:
           u8g2.print(' ');
-          u8g2.print(settings.vario_climbAvg);
+          if (settings.vario_climbDisplayAverage == 0)
+            u8g2.print("OFF");
+          else {
+            u8g2.print(settings.vario_climbDisplayAverage);
+            u8g2.print('s');
+          }
           break;
-        */
+        case cursor_vario_glideavg:
+          u8g2.print(' ');
+          if (settings.glideAverageSeconds == 0)
+            u8g2.print("OFF");
+          else {
+            u8g2.print(settings.glideAverageSeconds);
+            u8g2.print('s');
+          }
+          break;
         case cursor_vario_climbstart:
           if (settings.units_climb) {
             u8g2.print(' ');
@@ -138,11 +155,6 @@ void VarioMenuPage::draw() {
           u8g2.setFont(leaf_6x12);
           break;
 
-        case cursor_vario_volumeShortcut:
-          u8g2.setCursor(80, menu_items_y[i]);
-          menu_ui::printGlyph(settings.volumeShortcut ? menu_ui::ICON_ON : menu_ui::ICON_OFF);
-          break;
-
         case cursor_vario_back:
           menu_ui::drawBackIcon(setting_choice_x, menu_items_y[i]);
           break;
@@ -168,6 +180,10 @@ void VarioMenuPage::setting_change(Button dir, ButtonEvent state, uint8_t count)
       if (state != ButtonEvent::CLICKED) return;
       settings.adjustVolumeVario(dir);
       break;
+    case cursor_vario_volumeShortcut:
+      if (state == ButtonEvent::CLICKED && (dir == Button::CENTER || dir == Button::RIGHT))
+        settings.toggleBoolOnOff(&settings.volumeShortcut);
+      break;
     case cursor_vario_quietmode:
       if (state == ButtonEvent::CLICKED) settings.toggleBoolOnOff(&settings.vario_quietMode);
       break;
@@ -182,20 +198,17 @@ void VarioMenuPage::setting_change(Button dir, ButtonEvent state, uint8_t count)
       if (state == ButtonEvent::CLICKED) settings.adjustLiftyAir(dir);
       break;
       */
-    /*
     case cursor_vario_climbavg:
-      if (state == ButtonEvent::CLICKED) settings.adjustClimbAverage(dir);
+      if (state == ButtonEvent::CLICKED) settings.adjustClimbDisplayAverage(dir);
       break;
-    */
+    case cursor_vario_glideavg:
+      if (state == ButtonEvent::CLICKED) settings.adjustGlideAverage(dir);
+      break;
     case cursor_vario_climbstart:
       if (state == ButtonEvent::CLICKED) settings.adjustClimbStart(dir);
       break;
     case cursor_vario_sinkalarm:
       if (state == ButtonEvent::CLICKED) settings.adjustSinkAlarm(dir);
-      break;
-    case cursor_vario_volumeShortcut:
-      if (state == ButtonEvent::CLICKED && (dir == Button::CENTER || dir == Button::RIGHT))
-        settings.toggleBoolOnOff(&settings.volumeShortcut);
       break;
     case cursor_vario_back:
       if (state == ButtonEvent::CLICKED) {
@@ -213,5 +226,6 @@ void VarioMenuPage::setting_change(Button dir, ButtonEvent state, uint8_t count)
 
 bool VarioMenuPage::cursorUsesLeftButton() const {
   return cursor_position == cursor_vario_volume || cursor_position == cursor_vario_sensitive ||
+         cursor_position == cursor_vario_climbavg || cursor_position == cursor_vario_glideavg ||
          cursor_position == cursor_vario_climbstart || cursor_position == cursor_vario_sinkalarm;
 }

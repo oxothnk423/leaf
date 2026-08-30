@@ -19,6 +19,8 @@
 #define FILTER_VALS_MAX 20  // total array size max;
 #define DEFAULT_SAMPLES_TO_AVERAGE 3
 #define BARO_SAMPLES_PER_SECOND 20
+#define CLIMB_DISPLAY_SAMPLES_PER_SECOND 5
+#define CLIMB_DISPLAY_AVERAGE_MAX_SECONDS 5
 
 // Barometer reporting altitude, adjusted altitude, climb rate, and other information.
 // Requires a pressure source.
@@ -62,13 +64,19 @@ class Barometer : public MessageSink<Barometer, PressureUpdate>,
 
   bool climbRateFilteredValid();
 
+  // Climb value for numerical display only (cm/s). This optionally applies the user's additional
+  // display averaging without changing the vario bar, speaker, or other climb consumers.
+  int32_t climbRateForDisplay();
+
+  void setClimbDisplayAverageSeconds(uint8_t seconds);
+
   // fixed 1-second averaged climb rate, independent of user vario sensitivity (cm/s)
   int32_t climbRate1SecAverage();
 
   bool climbRate1SecAverageValid();
 
-  // long-term (several seconds) averaged climb rate for smoothing out glide ratio and other
-  // calculations (cm/s)
+  // Legacy long-term (several seconds) averaged climb rate retained for diagnostics and other
+  // non-display consumers (cm/s)
   float climbRateAverage();
 
   bool climbRateAverageValid();
@@ -122,6 +130,16 @@ class Barometer : public MessageSink<Barometer, PressureUpdate>,
   int32_t climbRateFiltered_;
   bool validClimbRateFiltered_ = false;
 
+  static constexpr size_t CLIMB_DISPLAY_HISTORY_SIZE =
+      CLIMB_DISPLAY_SAMPLES_PER_SECOND * CLIMB_DISPLAY_AVERAGE_MAX_SECONDS;
+  static_assert(CLIMB_DISPLAY_HISTORY_SIZE == 25);
+  std::array<int16_t, CLIMB_DISPLAY_HISTORY_SIZE> climbDisplayHistory_{};
+  uint8_t climbDisplayHistoryCount_ = 0;
+  uint8_t climbDisplayHistoryIndex_ = 0;
+  int32_t climbDisplayBlockSum_ = 0;
+  uint8_t climbDisplayBlockCount_ = 0;
+  uint8_t climbDisplayAverageSeconds_ = 0;
+
   int32_t climbRate1SecAverage_;
   bool validClimbRate1SecAverage_ = false;
 
@@ -162,6 +180,7 @@ class Barometer : public MessageSink<Barometer, PressureUpdate>,
   // == Device reading & data processing ==
   void setPressureAlt(int32_t newPressure);
   void filterClimb(void);
+  void updateClimbDisplayHistory();
   void calculateAlts(void);
 };
 extern Barometer baro;

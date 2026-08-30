@@ -276,6 +276,7 @@ namespace {
 
   void drawThermalCoreContent() {
     const int32_t climbRate = baro.climbRateFilteredValid() ? baro.climbRateFiltered() : 0;
+    const int32_t displayClimbRate = baro.climbRateFilteredValid() ? baro.climbRateForDisplay() : 0;
     const ThermalCoreEstimate& estimate = thermalCore.estimate();
     const int8_t direction = estimate.direction;
     const int8_t turnSide = direction < 0 ? -1 : direction > 0 ? 1 : 0;
@@ -291,7 +292,7 @@ namespace {
     display_varioBar(VARIO_BAR_TOP, VARIO_BAR_HALF_HEIGHT, VARIO_BAR_HALF_HEIGHT, VARIO_BAR_WIDTH,
                      climbRate);
     drawAltitudeField();
-    drawClimbRateField(climbRate);
+    drawClimbRateField(displayClimbRate);
 
     if (hasGuidance) {
       drawArc(targetCx, AIRCRAFT_Y, dynamicRadius, turnSide);

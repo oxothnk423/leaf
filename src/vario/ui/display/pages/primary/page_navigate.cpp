@@ -262,6 +262,7 @@ void navigatePage_draw() {
     // Vario Bar
     // TODO: display lack of climb rate differently than 0
     int32_t climbRate = baro.climbRateFilteredValid() ? baro.climbRateFiltered() : 0;
+    const int32_t displayClimbRate = baro.climbRateFilteredValid() ? baro.climbRateForDisplay() : 0;
     display_varioBar(topOfFrame, varioBarTopHeight, varioBarBottomHeight, varioBarWidth, climbRate);
 
     // Climb
@@ -321,7 +322,7 @@ void navigatePage_draw() {
       u8g2.print("-");
 
     // climb value
-    display_unsignedClimbRate_short(varioBarWidth + 1, varioBarMidpoint + 20, climbRate);
+    display_unsignedClimbRate_short(varioBarWidth + 1, varioBarMidpoint + 20, displayClimbRate);
 
     // alt
     display_alt_type(49, 109, leaf_8x14, settings.disp_navPageAltType);

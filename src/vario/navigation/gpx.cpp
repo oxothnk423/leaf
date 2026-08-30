@@ -353,7 +353,6 @@ void Navigator::clear() {
   activeRoutePointIndex = RouteIndex::None;
   activeRouteIndex = RouteID::None;
   altAboveWaypoint = 0;
-  averageSpeed = 0;
   glideToActive = 0;
   segmentDistance = 0;
   pointDistanceRemaining = 0;
@@ -499,13 +498,6 @@ void Navigator::update() {
       altAboveGoal_ = 100 * (gps.altitude.meters() - goalPoint_.ele);
     else
       altAboveGoal_ = altAboveWaypoint;
-  }
-
-  // update additional values that are required regardless of if we're navigating to a point
-  // average speed
-  if (gps.hasFreshGroundSpeed()) {
-    averageSpeed =
-        (averageSpeed * (AVERAGE_SPEED_SAMPLES - 1) + gps.speed.kmph()) / AVERAGE_SPEED_SAMPLES;
   }
 }
 
