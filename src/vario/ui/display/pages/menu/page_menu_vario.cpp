@@ -21,12 +21,11 @@ enum vario_menu_items {
   cursor_vario_quietmode,
 
   cursor_vario_sensitive,
-  cursor_vario_climbavg,
-  cursor_vario_glideavg,
-
   cursor_vario_climbstart,
   // cursor_vario_liftyair,
   cursor_vario_sinkalarm,
+  cursor_vario_climbavg,
+  cursor_vario_glideavg,
 };
 
 void VarioMenuPage::draw() {
@@ -38,7 +37,7 @@ void VarioMenuPage::draw() {
     // Menu Items
     uint8_t setting_name_x = 2;
     uint8_t setting_choice_x = 68;
-    uint8_t menu_items_y[] = {190, 40, 55, 70, 85, 100, 115, 130, 145};
+    uint8_t menu_items_y[] = {190, 40, 55, 70, 85, 100, 115, 145, 160};
 
     for (int i = 0; i <= cursor_max; i++) {
       const bool selected = i == cursor_position;
@@ -47,7 +46,7 @@ void VarioMenuPage::draw() {
       u8g2.setCursor(setting_choice_x, menu_items_y[i]);
       switch (i) {
         case cursor_vario_volume:
-          u8g2.print(' ');
+          u8g2.setCursor(80, menu_items_y[i]);
           u8g2.setFont(leaf_icons);
           u8g2.print(char('I' + settings.vario_volume));
           u8g2.setFont(leaf_6x12);
@@ -66,7 +65,7 @@ void VarioMenuPage::draw() {
           break;
           */
         case cursor_vario_quietmode:
-          u8g2.print(' ');
+          u8g2.setCursor(80, menu_items_y[i]);
           if (settings.vario_quietMode)
             menu_ui::printGlyph(menu_ui::ICON_ON);
           else
@@ -78,19 +77,21 @@ void VarioMenuPage::draw() {
           u8g2.print(settings.vario_sensitivity);
           break;
         case cursor_vario_climbavg:
-          u8g2.print(' ');
-          if (settings.vario_climbDisplayAverage == 0)
+          if (settings.vario_climbDisplayAverage == 0) {
+            u8g2.setCursor(setting_choice_x + 3, menu_items_y[i]);
             u8g2.print("OFF");
-          else {
+          } else {
+            u8g2.print(' ');
             u8g2.print(settings.vario_climbDisplayAverage);
             u8g2.print('s');
           }
           break;
         case cursor_vario_glideavg:
-          u8g2.print(' ');
-          if (settings.glideAverageSeconds == 0)
+          if (settings.glideAverageSeconds == 0) {
+            u8g2.setCursor(setting_choice_x + 3, menu_items_y[i]);
             u8g2.print("OFF");
-          else {
+          } else {
+            u8g2.print(' ');
             u8g2.print(settings.glideAverageSeconds);
             u8g2.print('s');
           }
