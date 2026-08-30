@@ -1,7 +1,10 @@
 #pragma once
 
+#include <array>
+
 #include <NimBLEDevice.h>
 #include "TinyGPSPlus.h"
+#include "etl/variant.h"
 
 #include "dispatch/message_sink.h"
 #include "dispatch/message_types.h"
@@ -35,6 +38,15 @@ class BLE : public MessageSink<BLE, GpsMessage, FanetPacket> {
   void on_receive_unknown(const etl::imessage& msg) {}
 
  private:
+  enum class WakeupReason : uint8_t { PERIODIC, FANET_RX, GPS_GPGGA, GPS_GPRMC };
+
+  struct WakeupMessage {
+    WakeupReason reason = WakeupReason::PERIODIC;
+    etl::variant<NMEAString, FanetPacket> message;
+  };
+
+  static constexpr size_t QUEUE_CAPACITY = 4;
+
   BLE()
       : pServer(nullptr),
         pService(nullptr),
@@ -42,6 +54,7 @@ class BLE : public MessageSink<BLE, GpsMessage, FanetPacket> {
         pCharacteristic(nullptr),
         pAdvertising(nullptr),
         xQueue(nullptr),
+        xFreeQueue(nullptr),
         xTimer(nullptr),
         xTask(nullptr),
         started(false) {}
@@ -56,8 +69,11 @@ class BLE : public MessageSink<BLE, GpsMessage, FanetPacket> {
   NimBLECharacteristic* pCharacteristic;
   NimBLEAdvertising* pAdvertising;
 
-  // Queue for handling messages into this task from either buffer or periodic wakeup events.
+  // The work queue carries pointers because WakeupMessage contains self-referential ETL objects
+  // that cannot safely be byte-copied by a FreeRTOS queue. The free queue owns the available slots.
   QueueHandle_t xQueue;
+  QueueHandle_t xFreeQueue;
+  std::array<WakeupMessage, QUEUE_CAPACITY> messagePool_;
   // Timer for periodically requesting an update be sent for our Baro updates
   TimerHandle_t xTimer;
   // Task to handle Bluetooth IO
@@ -66,6 +82,12 @@ class BLE : public MessageSink<BLE, GpsMessage, FanetPacket> {
   // FreeRTOS Task handler callbacks
   static void bleTask(void*);
   static void timerCallback(TimerHandle_t timer);
+
+  bool enqueue(WakeupReason reason);
+  bool enqueue(WakeupReason reason, const NMEAString& nmea);
+  bool enqueue(WakeupReason reason, const FanetPacket& packet);
+  void release(WakeupMessage* message);
+  static bool ownsInlineBuffer(const NMEAString& nmea);
 
   void sendVarioUpdate();
   // NimBLE reports whether an update was submitted, not final over-the-air delivery.
