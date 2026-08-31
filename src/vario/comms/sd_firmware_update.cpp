@@ -111,6 +111,11 @@ namespace {
     return lower.endsWith(".bin");
   }
 
+  bool isHiddenFile(const String& name) {
+    const int basenameStart = name.lastIndexOf('/') + 1;
+    return basenameStart < static_cast<int>(name.length()) && name[basenameStart] == '.';
+  }
+
   bool filenameContainsDifferentLeafHardware(const String& name) {
     return name.indexOf("leaf_") >= 0 || name.indexOf("Leaf_") >= 0 || name.indexOf("LEAF_") >= 0;
   }
@@ -220,7 +225,8 @@ namespace {
     String found;
     File entry = dir.openNextFile();
     while (entry) {
-      if (!entry.isDirectory() && hasFirmwareExtension(entry.name())) {
+      const String name = entry.name();
+      if (!entry.isDirectory() && !isHiddenFile(name) && hasFirmwareExtension(name)) {
         if (found.length()) {
           result = Result::FailedMultipleFiles;
           entry.close();
