@@ -9,7 +9,9 @@ namespace leaf_log_credentials {
     String displayName;
     bool reconnectRequired = false;
 
-    bool linked() const { return !token.isEmpty() && !reconnectRequired; }
+    bool linked() const {
+      return !token.isEmpty() && !handle.isEmpty() && !displayName.isEmpty() && !reconnectRequired;
+    }
   };
 
   Snapshot load();
