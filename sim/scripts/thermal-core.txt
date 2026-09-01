@@ -59,10 +59,10 @@
 287  screenshot    sim/build/tc-09-dying.png
 
 # --- the glide between climbs ----------------------------------------------------------------
-# Rolled out at 298 s.  The turn layout must be gone by about 307 s - the turn rate is measured
-# over four seconds and the circling state needs three more of level flight to release - and the
-# page must not keep drawing a circle the pilot is no longer flying just because the buffer
-# still holds one.
+# Rolled out at 298 s.  The turn layout must be gone when the robust course envelope over seven
+# seconds is no more than 45 degrees and the recent three-second climb average is no more than
+# +0.2 m/s, or after 15 straight seconds even in lift.  It must stay gone even though the
+# breadcrumb buffer still contains the previous circle.
 312  screenshot    sim/build/tc-10-just-left.png
 345  status
 347  screenshot    sim/build/tc-11-aged-out.png

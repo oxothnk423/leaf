@@ -1,18 +1,26 @@
 #include "navigation/thermal_core.h"
 
 #include <math.h>
-#include <string.h>
-
 #include "ui/settings/settings.h"
+#include "wind_estimate/wind_estimate.h"
 
 ThermalCore thermalCore;
 
 namespace {
-  constexpr uint8_t MIN_SAMPLES = 8;
-  constexpr uint16_t MIN_TURN_DEG = 120;
-  constexpr uint8_t BIN_COUNT = 12;
+  constexpr uint8_t INITIAL_TURN_SAMPLES = 8;
+  constexpr uint16_t INITIAL_TURN_DEG = 120;
+  constexpr uint8_t REENTRY_TURN_SAMPLES = 10;
+  constexpr uint16_t REENTRY_TURN_DEG = 90;
+  constexpr uint32_t TURN_EXIT_COURSE_WINDOW_MS = 7000;
+  constexpr uint32_t TURN_EXIT_MIN_COURSE_WINDOW_MS = 6000;
+  constexpr uint16_t TURN_EXIT_MAX_COURSE_DEVIATION_DEG = 45;
+  constexpr uint32_t TURN_EXIT_LOW_LIFT_MS = 8000;
+  constexpr uint32_t TURN_EXIT_HARD_MS = 15000;
+  constexpr uint8_t TURN_EXIT_LIFT_SAMPLES = 3;
+  constexpr int16_t TURN_EXIT_MAX_CLIMB_CMS = 20;
+  constexpr uint8_t GUIDANCE_BIN_COUNT = 12;
   constexpr uint8_t LOOKBACK_S = 40;
-  constexpr float METERS_PER_PX = 1.8f;
+  constexpr float METERS_PER_PX = 0.9f;
   constexpr int16_t AIRCRAFT_Y = 124;
   constexpr int16_t LEFT_AIRCRAFT_X = 20;
   constexpr int16_t RIGHT_AIRCRAFT_X = 76;
@@ -20,6 +28,23 @@ namespace {
   constexpr int16_t SCREEN_W = 96;
   constexpr int16_t MAP_TOP = 76;
   constexpr int16_t MAP_SIZE = 96;
+  constexpr uint32_t MAX_MAP_EXTRAPOLATION_MS = 1000;
+  constexpr uint32_t MIN_TURN_SAMPLE_INTERVAL_MS = 250;
+  constexpr uint32_t MAX_TURN_SAMPLE_INTERVAL_MS = 2000;
+  constexpr uint16_t MIN_TURN_EXTRAPOLATION_SPEED_CMS = 200;
+  constexpr float MAX_TURN_RATE_DPS = 90.0f;
+  constexpr float MAX_USABLE_WIND_MPS = 20.0f;
+
+  struct MapReference {
+    float xM = 0;
+    float yM = 0;
+    float courseDeg = 0;
+  };
+
+  struct WindVector {
+    float eastMps = 0;
+    float northMps = 0;
+  };
 
   int16_t wrap180(int16_t deg) {
     while (deg > 180) deg -= 360;
@@ -29,12 +54,65 @@ namespace {
 
   int16_t headingDelta(int16_t newer, int16_t older) { return wrap180(newer - older); }
 
-  int16_t turnTotalDeg(const ThermalTracker::CoreSample* samples, uint8_t count) {
+  int16_t recentTurnTotalDeg(const ThermalTracker::CoreSample* samples, uint8_t count,
+                             uint8_t windowSamples) {
+    const uint8_t first = count > windowSamples ? count - windowSamples : 0;
     int16_t total = 0;
-    for (uint8_t i = 1; i < count; ++i) {
+    for (uint8_t i = first + 1; i < count; ++i) {
       total += headingDelta(samples[i].courseDeg, samples[i - 1].courseDeg);
     }
     return total;
+  }
+
+  int16_t recentClimbAverageCms(const ThermalTracker::CoreSample* samples, uint8_t count,
+                                uint8_t windowSamples) {
+    const uint8_t first = count > windowSamples ? count - windowSamples : 0;
+    int32_t total = 0;
+    for (uint8_t i = first; i < count; ++i) total += samples[i].climbCms;
+    return count > first ? static_cast<int16_t>(total / (count - first)) : 0;
+  }
+
+  bool recentCourseWindowIsStraight(const ThermalTracker::CoreSample* samples, uint8_t count,
+                                    uint32_t& windowSpanMs) {
+    windowSpanMs = 0;
+    if (count < 2) return false;
+
+    const uint32_t latestMs = samples[count - 1].capturedAtMs;
+    uint8_t first = count - 1;
+    while (first > 0 && latestMs - samples[first - 1].capturedAtMs <= TURN_EXIT_COURSE_WINDOW_MS) {
+      first--;
+    }
+
+    windowSpanMs = latestMs - samples[first].capturedAtMs;
+    const uint8_t pointCount = count - first;
+    if (windowSpanMs < TURN_EXIT_MIN_COURSE_WINDOW_MS || pointCount < 5) return false;
+
+    // Unwrap the course through the window, then measure its angular envelope. Discarding one
+    // value from each extreme makes the result insensitive to one isolated GPS course jump.
+    int32_t unwrappedDeg = 0;
+    int32_t lowest = 0;
+    int32_t secondLowest = INT32_MAX;
+    int32_t highest = 0;
+    int32_t secondHighest = INT32_MIN;
+    for (uint8_t i = first + 1; i < count; ++i) {
+      unwrappedDeg += headingDelta(samples[i].courseDeg, samples[i - 1].courseDeg);
+      if (unwrappedDeg < lowest) {
+        secondLowest = lowest;
+        lowest = unwrappedDeg;
+      } else if (unwrappedDeg < secondLowest) {
+        secondLowest = unwrappedDeg;
+      }
+      if (unwrappedDeg > highest) {
+        secondHighest = highest;
+        highest = unwrappedDeg;
+      } else if (unwrappedDeg > secondHighest) {
+        secondHighest = unwrappedDeg;
+      }
+    }
+
+    const int32_t robustLowest = secondLowest == INT32_MAX ? lowest : secondLowest;
+    const int32_t robustHighest = secondHighest == INT32_MIN ? highest : secondHighest;
+    return robustHighest - robustLowest <= TURN_EXIT_MAX_COURSE_DEVIATION_DEG;
   }
 
   int8_t directionForTurn(int16_t totalDeg) {
@@ -61,12 +139,12 @@ namespace {
     return static_cast<uint8_t>(255 - (ageS * 217) / LOOKBACK_S);
   }
 
-  void sampleToScreen(const ThermalTracker::CoreSample& sample,
-                      const ThermalTracker::CoreSample& latest, int16_t aircraftX, int16_t& x,
-                      int16_t& y, float* rightOut = nullptr, float* aheadOut = nullptr) {
-    const float heading = latest.courseDeg * DEG_TO_RAD;
-    const float dx = sample.xM - latest.xM;
-    const float dy = sample.yM - latest.yM;
+  void pointToScreen(float pointXM, float pointYM, float referenceXM, float referenceYM,
+                     float referenceCourseDeg, int16_t aircraftX, int16_t& x, int16_t& y,
+                     float* rightOut = nullptr, float* aheadOut = nullptr) {
+    const float heading = referenceCourseDeg * DEG_TO_RAD;
+    const float dx = pointXM - referenceXM;
+    const float dy = pointYM - referenceYM;
     const float right = cosf(heading) * dx - sinf(heading) * dy;
     const float ahead = sinf(heading) * dx + cosf(heading) * dy;
     x = static_cast<int16_t>(roundf(aircraftX + right / METERS_PER_PX));
@@ -74,20 +152,116 @@ namespace {
     if (rightOut != nullptr) *rightOut = right;
     if (aheadOut != nullptr) *aheadOut = ahead;
   }
+
+  void sampleToScreen(const ThermalTracker::CoreSample& sample,
+                      const ThermalTracker::CoreSample& latest, int16_t aircraftX, int16_t& x,
+                      int16_t& y, float* rightOut = nullptr, float* aheadOut = nullptr) {
+    pointToScreen(sample.xM, sample.yM, latest.xM, latest.yM, latest.courseDeg, aircraftX, x, y,
+                  rightOut, aheadOut);
+  }
+
+  float anticipatedTurnRate(const ThermalTracker::CoreSample* samples, uint8_t sampleCount) {
+    if (sampleCount < 2) return 0;
+
+    const ThermalTracker::CoreSample& latest = samples[sampleCount - 1];
+    const ThermalTracker::CoreSample& prior = samples[sampleCount - 2];
+    if (latest.speedCms < MIN_TURN_EXTRAPOLATION_SPEED_CMS) return 0;
+
+    const uint32_t intervalMs = latest.capturedAtMs - prior.capturedAtMs;
+    if (intervalMs < MIN_TURN_SAMPLE_INTERVAL_MS || intervalMs > MAX_TURN_SAMPLE_INTERVAL_MS) {
+      return 0;
+    }
+
+    const float turnRate = headingDelta(latest.courseDeg, prior.courseDeg) * 1000.0f / intervalMs;
+    return constrain(turnRate, -MAX_TURN_RATE_DPS, MAX_TURN_RATE_DPS);
+  }
+
+  MapReference extrapolatedMapReference(const ThermalTracker::CoreSample* samples,
+                                        uint8_t sampleCount, uint32_t nowMs) {
+    const ThermalTracker::CoreSample& latest = samples[sampleCount - 1];
+    const uint32_t elapsedMs = nowMs - latest.capturedAtMs;
+    const uint32_t extrapolationMs = min(elapsedMs, MAX_MAP_EXTRAPOLATION_MS);
+    const float extrapolationS = extrapolationMs / 1000.0f;
+    const float turnRateDps = anticipatedTurnRate(samples, sampleCount);
+    const float projectedCourseDeg = latest.courseDeg + turnRateDps * extrapolationS;
+    const float midpointCourseRad =
+        (latest.courseDeg + turnRateDps * extrapolationS * 0.5f) * DEG_TO_RAD;
+    const float distanceM = latest.speedCms * extrapolationMs / 100000.0f;
+    return {latest.xM + sinf(midpointCourseRad) * distanceM,
+            latest.yM + cosf(midpointCourseRad) * distanceM, projectedCourseDeg};
+  }
+
+  WindVector currentWindVector() {
+    const WindEstimate& wind = windEstimator.getWindEstimate();
+    if (!wind.validEstimate || !isfinite(wind.windSpeed) || !isfinite(wind.windDirectionTrue) ||
+        wind.windSpeed < 0 || wind.windSpeed > MAX_USABLE_WIND_MPS) {
+      return {};
+    }
+
+    // windDirectionTrue is the direction the air mass is moving toward, in radians east of north.
+    return {sinf(wind.windDirectionTrue) * wind.windSpeed,
+            cosf(wind.windDirectionTrue) * wind.windSpeed};
+  }
 }  // namespace
 
-void ThermalCore::reset() { memset(&estimate_, 0, sizeof(estimate_)); }
+void ThermalCore::reset() {
+  estimate_ = {};
+  turnGuidanceActive_ = false;
+  turnGuidancePreviouslyActive_ = false;
+  activeTurnDirection_ = 0;
+  straightDurationMs_ = 0;
+  lastGuidanceSampleMs_ = 0;
+}
 
 void ThermalCore::update() {
   ThermalTracker::CoreSample samples[THERMAL_CORE_MAX_MARKERS];
   const uint8_t sampleCount = thermalTracker.recentCoreSamples(samples, THERMAL_CORE_MAX_MARKERS);
-  reset();
+  estimate_ = {};
   if (sampleCount == 0) return;
 
   const ThermalTracker::CoreSample& latest = samples[sampleCount - 1];
-  const int16_t totalTurn = turnTotalDeg(samples, sampleCount);
-  const bool hasSufficientTurn = sampleCount >= MIN_SAMPLES && abs(totalTurn) >= MIN_TURN_DEG;
-  const int8_t direction = hasSufficientTurn ? directionForTurn(totalTurn) : 0;
+  const uint8_t turnWindowSamples =
+      turnGuidancePreviouslyActive_ ? REENTRY_TURN_SAMPLES : INITIAL_TURN_SAMPLES;
+  const uint16_t requiredTurnDeg =
+      turnGuidancePreviouslyActive_ ? REENTRY_TURN_DEG : INITIAL_TURN_DEG;
+  const int16_t recentTurn = recentTurnTotalDeg(samples, sampleCount, turnWindowSamples);
+  const bool hasSufficientRecentTurn =
+      sampleCount >= turnWindowSamples && abs(recentTurn) >= requiredTurnDeg;
+
+  if (latest.capturedAtMs != lastGuidanceSampleMs_) {
+    uint32_t courseWindowSpanMs = 0;
+    if (recentCourseWindowIsStraight(samples, sampleCount, courseWindowSpanMs)) {
+      const uint32_t newSampleMs =
+          lastGuidanceSampleMs_ == 0 ? 0 : latest.capturedAtMs - lastGuidanceSampleMs_;
+      straightDurationMs_ = straightDurationMs_ == 0
+                                ? courseWindowSpanMs
+                                : min(straightDurationMs_ + newSampleMs, TURN_EXIT_HARD_MS);
+    } else {
+      straightDurationMs_ = 0;
+    }
+    lastGuidanceSampleMs_ = latest.capturedAtMs;
+  }
+
+  if (turnGuidanceActive_) {
+    const int16_t recentClimbCms =
+        recentClimbAverageCms(samples, sampleCount, TURN_EXIT_LIFT_SAMPLES);
+    const bool lowLiftExit =
+        straightDurationMs_ >= TURN_EXIT_LOW_LIFT_MS && recentClimbCms <= TURN_EXIT_MAX_CLIMB_CMS;
+    const bool hardExit = straightDurationMs_ >= TURN_EXIT_HARD_MS;
+    if (lowLiftExit || hardExit) {
+      turnGuidanceActive_ = false;
+      activeTurnDirection_ = 0;
+    } else {
+      const int8_t recentDirection = directionForTurn(recentTurn);
+      if (recentDirection != 0) activeTurnDirection_ = recentDirection;
+    }
+  } else if (straightDurationMs_ == 0 && hasSufficientRecentTurn) {
+    turnGuidanceActive_ = true;
+    turnGuidancePreviouslyActive_ = true;
+    activeTurnDirection_ = directionForTurn(recentTurn);
+  }
+
+  const int8_t direction = turnGuidanceActive_ ? activeTurnDirection_ : 0;
   const int16_t aircraftX = direction < 0   ? RIGHT_AIRCRAFT_X
                             : direction > 0 ? LEFT_AIRCRAFT_X
                                             : CENTER_AIRCRAFT_X;
@@ -95,10 +269,25 @@ void ThermalCore::update() {
   estimate_.direction = direction;
   estimate_.markerCount = sampleCount;
 
+  // The tracker deliberately records one sample per second. Project the aircraft position and
+  // ground-track bearing forward for the intervening display refresh so the map moves at 2 Hz.
+  // The guidance calculation below continues to use the unprojected 1 Hz samples.
+  const uint32_t nowMs = millis();
+  const MapReference mapReference = extrapolatedMapReference(samples, sampleCount, nowMs);
+  const WindVector wind = currentWindVector();
+
   for (uint8_t i = 0; i < sampleCount; ++i) {
+    // Carry each historical air parcel downwind to the current display time. This removes the
+    // air mass's translation from the trail while leaving the estimator's ground-frame inputs
+    // and guidance calculation unchanged.
+    const uint32_t ageMs = min(nowMs - samples[i].capturedAtMs, LOOKBACK_S * 1000UL);
+    const float ageS = ageMs / 1000.0f;
+    const float breadcrumbXM = samples[i].xM + wind.eastMps * ageS;
+    const float breadcrumbYM = samples[i].yM + wind.northMps * ageS;
     int16_t x = 0;
     int16_t y = 0;
-    sampleToScreen(samples[i], latest, aircraftX, x, y);
+    pointToScreen(breadcrumbXM, breadcrumbYM, mapReference.xM, mapReference.yM,
+                  mapReference.courseDeg, aircraftX, x, y);
     ThermalCoreMarker& marker = estimate_.markers[i];
     marker.visible = x >= 0 && x < SCREEN_W && y >= MAP_TOP && y < MAP_TOP + MAP_SIZE;
     marker.x = x;
@@ -106,10 +295,10 @@ void ThermalCore::update() {
     marker.glyph = glyphForClimb(samples[i].climbCms);
   }
 
-  if (!hasSufficientTurn || direction == 0) return;
+  if (!turnGuidanceActive_ || direction == 0) return;
 
-  int32_t binLift[BIN_COUNT] = {};
-  uint16_t binWeight[BIN_COUNT] = {};
+  int32_t binLift[GUIDANCE_BIN_COUNT] = {};
+  uint16_t binWeight[GUIDANCE_BIN_COUNT] = {};
   int32_t recentLift = 0;
   uint16_t recentWeight = 0;
   int32_t priorLift = 0;
@@ -129,8 +318,8 @@ void ThermalCore::update() {
     if (phase < 0) phase += 360.0f;
     if (direction < 0) phase = 360.0f - phase;
     if (phase >= 360.0f) phase -= 360.0f;
-    const uint8_t bin =
-        min<uint8_t>(BIN_COUNT - 1, static_cast<uint8_t>(phase / 360.0f * BIN_COUNT));
+    const uint8_t bin = min<uint8_t>(GUIDANCE_BIN_COUNT - 1,
+                                     static_cast<uint8_t>(phase / 360.0f * GUIDANCE_BIN_COUNT));
     binLift[bin] += static_cast<int32_t>(sample.climbCms) * weight;
     binWeight[bin] += weight;
 

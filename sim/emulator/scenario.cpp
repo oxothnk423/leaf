@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 
@@ -295,11 +296,41 @@ namespace sim {
     double previousLon = 0;
     int previousSecondOfDay = 0;
     int previousElapsedS = 0;
+    size_t trackFieldOffset = std::string::npos;
+    size_t trackFieldLength = 0;
     // B records carry a time of day, not a date, so an evening flight that runs past midnight
     // sees the clock wrap back to zero.  Each wrap adds a day here.
     int dayOffsetS = 0;
 
     while (std::getline(in, line)) {
+      // I records declare extension fields using one-based inclusive columns.  Leaf writes its
+      // receiver-reported track bearing as TRT, but its position is not assumed here so files
+      // from other recorders remain compatible.
+      if (line.size() >= 3 && line[0] == 'I' && isdigit((unsigned char)line[1]) &&
+          isdigit((unsigned char)line[2])) {
+        const int extensionCount = atoi(line.substr(1, 2).c_str());
+        for (int i = 0; i < extensionCount; ++i) {
+          const size_t descriptor = 3 + (size_t)i * 7;
+          if (descriptor + 7 > line.size()) break;
+          const std::string startText = line.substr(descriptor, 2);
+          const std::string endText = line.substr(descriptor + 2, 2);
+          const bool numericColumns =
+              std::all_of(startText.begin(), startText.end(),
+                          [](unsigned char c) { return std::isdigit(c); }) &&
+              std::all_of(endText.begin(), endText.end(),
+                          [](unsigned char c) { return std::isdigit(c); });
+          if (!numericColumns || line.substr(descriptor + 4, 3) != "TRT") continue;
+
+          const int startColumn = atoi(startText.c_str());
+          const int endColumn = atoi(endText.c_str());
+          if (startColumn > 0 && endColumn >= startColumn) {
+            trackFieldOffset = (size_t)(startColumn - 1);
+            trackFieldLength = (size_t)(endColumn - startColumn + 1);
+          }
+        }
+        continue;
+      }
+
       // B HHMMSS DDMMmmm N DDDMMmmm E A PPPPP GGGGG
       if (line.size() < 35 || line[0] != 'B') continue;
 
@@ -333,8 +364,8 @@ namespace sim {
       const int elapsedS = secondOfDay + dayOffsetS - firstSecondOfDay;
       const uint32_t atMs = (uint32_t)(elapsedS * 1000);
 
-      // IGC has no speed or heading, so derive them from consecutive fixes: that is what the
-      // receiver reports on a real flight, and the firmware's wind and navigation code needs it.
+      // Derive speed and a fallback track bearing from consecutive fixes.  If the I record
+      // declares a valid TRT field below, prefer that receiver-reported track instead.
       const int dt = elapsedS - previousElapsedS;
       double speedKnots = 0;
       double courseDeg = 0;
@@ -346,6 +377,17 @@ namespace sim {
         speedKnots = (distance / dt) * METRES_PER_SECOND_TO_KNOTS;
         courseDeg = atan2(dLon, dLat) / RADIANS_PER_DEGREE;
         if (courseDeg < 0) courseDeg += 360.0;
+      }
+
+      if (trackFieldOffset != std::string::npos && trackFieldLength > 0 &&
+          trackFieldOffset + trackFieldLength <= line.size()) {
+        const std::string trackText = line.substr(trackFieldOffset, trackFieldLength);
+        const bool numericTrack = std::all_of(trackText.begin(), trackText.end(),
+                                              [](unsigned char c) { return std::isdigit(c); });
+        if (numericTrack) {
+          const int recordedTrack = atoi(trackText.c_str());
+          if (recordedTrack >= 0 && recordedTrack < 360) courseDeg = recordedTrack;
+        }
       }
 
       Fix fix;

@@ -165,27 +165,6 @@ namespace {
     u8g2.drawLine(x - 8, y + 9, x + 8, y + 9);
   }
 
-  void drawArc(int16_t cx, int16_t cy, int16_t radius, int8_t turnSide) {
-    if (turnSide == 0) return;
-    const int16_t start = turnSide > 0 ? 180 : 0;
-    const int16_t end = turnSide > 0 ? 315 : -135;
-    for (int16_t r = radius - 1; r <= radius + 1; ++r) {
-      int16_t priorX = 0;
-      int16_t priorY = 0;
-      bool hasPrior = false;
-      const int16_t step = turnSide > 0 ? 6 : -6;
-      for (int16_t deg = start; turnSide > 0 ? deg <= end : deg >= end; deg += step) {
-        const float rad = deg * DEG_TO_RAD;
-        const int16_t x = static_cast<int16_t>(roundf(cx + cosf(rad) * r));
-        const int16_t y = static_cast<int16_t>(roundf(cy + sinf(rad) * r));
-        if (hasPrior) u8g2.drawLine(priorX, priorY, x, y);
-        priorX = x;
-        priorY = y;
-        hasPrior = true;
-      }
-    }
-  }
-
   void drawTargetScale(int16_t cx, int16_t cy) {
     const int16_t left = cx - 28;
     const int16_t right = cx + 28;
@@ -287,16 +266,12 @@ namespace {
     const int16_t dynamicRadius = min<int16_t>(46, max<int16_t>(20, TARGET_RADIUS + adviceShift));
     const int16_t targetCx = turnSide == 0 ? aircraftX : aircraftX + turnSide * dynamicRadius;
     const bool hasTurn = turnSide != 0;
-    const bool hasGuidance = estimate.valid && abs(estimate.adviceQ7) >= 10;
+    const bool hasGuidance = estimate.valid;
 
     display_varioBar(VARIO_BAR_TOP, VARIO_BAR_HALF_HEIGHT, VARIO_BAR_HALF_HEIGHT, VARIO_BAR_WIDTH,
                      climbRate);
     drawAltitudeField();
     drawClimbRateField(displayClimbRate);
-
-    if (hasGuidance) {
-      drawArc(targetCx, AIRCRAFT_Y, dynamicRadius, turnSide);
-    }
 
     for (uint8_t i = 0; i < estimate.markerCount; ++i) {
       drawMarker(estimate.markers[i]);

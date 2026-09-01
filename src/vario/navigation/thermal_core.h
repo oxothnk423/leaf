@@ -36,6 +36,11 @@ class ThermalCore {
 
  private:
   ThermalCoreEstimate estimate_;
+  bool turnGuidanceActive_ = false;
+  bool turnGuidancePreviouslyActive_ = false;
+  int8_t activeTurnDirection_ = 0;
+  uint32_t straightDurationMs_ = 0;
+  uint32_t lastGuidanceSampleMs_ = 0;
 };
 
 extern ThermalCore thermalCore;
