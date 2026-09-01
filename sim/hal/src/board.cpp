@@ -78,9 +78,13 @@ namespace sim {
     std::lock_guard<std::mutex> lock(mutex_);
     if (frequencyHz == tone_) return;
     tone_ = frequencyHz;
+    appendToneEventLocked();
+  }
+
+  void Board::appendToneEventLocked() {
     ToneEvent event;
     event.atMs = clock().millis();
-    event.frequencyHz = frequencyHz;
+    event.frequencyHz = tone_;
     event.volume = (uint8_t)((volA_ ? 1 : 0) + (volB_ ? 2 : 0));
     toneEvents_.push_back(event);
     // Nobody may be listening, so keep the retained tail bounded; the sequence numbers carry on.
@@ -97,8 +101,12 @@ namespace sim {
 
   void Board::setVolumePins(bool a, bool b) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (a == volA_ && b == volB_) return;
     volA_ = a;
     volB_ = b;
+    // The real amplifier reacts even when PWM frequency does not change. Send the browser a fresh
+    // event so it cannot retain a stale gain after the firmware changes volume or mutes the amp.
+    appendToneEventLocked();
   }
 
   uint8_t Board::volume() const {

@@ -377,12 +377,20 @@
   function playTone(event) {
     if (!audio) return;
     const now = audio.currentTime;
-    if (!event.hz) {
-      gain.gain.setTargetAtTime(0, now, 0.005);
-      return;
+
+    // Volume zero disables the physical Leaf's speaker amplifier, even if PWM is still running.
+    // Reach an exact zero after a short click-suppressing ramp instead of leaving the oscillator at
+    // a small gain or using an exponential target that only approaches silence asymptotically.
+    if (gain.gain.cancelAndHoldAtTime) {
+      gain.gain.cancelAndHoldAtTime(now);
+    } else {
+      const currentGain = gain.gain.value;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(currentGain, now);
     }
-    oscillator.frequency.setValueAtTime(event.hz, now);
-    gain.gain.setTargetAtTime(0.02 + 0.03 * event.volume, now, 0.005);
+    const targetGain = event.hz && event.volume ? 0.02 + 0.03 * event.volume : 0;
+    if (event.hz) oscillator.frequency.setValueAtTime(event.hz, now);
+    gain.gain.linearRampToValueAtTime(targetGain, now + 0.005);
   }
 
   // ---------------------------------------------------------------- status

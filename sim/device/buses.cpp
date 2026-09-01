@@ -14,6 +14,13 @@
 
 SemaphoreHandle_t SpiLockGuard::spiMutex = nullptr;
 
+namespace {
+#if defined(SPEAKER_VOLA) && defined(SPEAKER_VOLB)
+  bool speakerVolA = false;
+  bool speakerVolB = false;
+#endif
+}  // namespace
+
 void wire_init() {}
 
 void spi_init(void) {
@@ -66,8 +73,9 @@ void ioexDigitalWrite(bool onIOEX, uint8_t pin, uint8_t value) {
   const uint16_t volBPin =
       volBOnIoex ? (uint16_t)(sim::IOEX_PIN_BASE + SPEAKER_VOLB) : SPEAKER_VOLB;
   if (target == volAPin || target == volBPin) {
-    sim::board().setVolumePins(sim::board().digitalRead(volAPin) != 0,
-                               sim::board().digitalRead(volBPin) != 0);
+    if (target == volAPin) speakerVolA = value != 0;
+    if (target == volBPin) speakerVolB = value != 0;
+    sim::board().setVolumePins(speakerVolA, speakerVolB);
   }
 #endif
 }
