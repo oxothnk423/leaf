@@ -23,6 +23,17 @@ namespace route_store {
       return value;
     }
 
+    uint16_t radiusOrDefault(uint16_t radiusM) {
+      return radiusM == 0 ? defaultWaypointRadius : radiusM;
+    }
+
+    void normalizePersistedRadii(JsonArray points) {
+      for (JsonObject point : points) {
+        const uint16_t radiusM = point["radius_m"] | defaultWaypointRadius;
+        point["radius_m"] = radiusOrDefault(radiusM);
+      }
+    }
+
     bool ensureRouteDirectory() {
       return SD_MMC.exists(directoryPath()) || SD_MMC.mkdir(directoryPath());
     }
@@ -238,7 +249,7 @@ namespace route_store {
         outPoint["lat"] = lat;
         outPoint["lon"] = lon;
         outPoint["alt_m"] = altM;
-        outPoint["radius_m"] = radiusM;
+        outPoint["radius_m"] = radiusOrDefault(radiusM);
         outPoint["role"] = roleName(compactRoleForPoint(point, index == total));
       }
 
@@ -294,7 +305,8 @@ namespace route_store {
         outPoint["lat"] = lat;
         outPoint["lon"] = lon;
         outPoint["alt_m"] = waypoint["altSmoothed"] | 0;
-        outPoint["radius_m"] = point["radius"] | defaultWaypointRadius;
+        const uint16_t radiusM = point["radius"] | defaultWaypointRadius;
+        outPoint["radius_m"] = radiusOrDefault(radiusM);
         outPoint["role"] = roleName(fullRoleForPoint(point, index == total));
       }
 
@@ -492,6 +504,7 @@ namespace route_store {
       heap_monitor::checkpoint("route-save-invalid");
       return false;
     }
+    normalizePersistedRadii(points);
 
     const String path = safeRouteFileName(name);
     if (!writeJsonFile(path, routeDoc)) {
