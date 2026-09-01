@@ -30,6 +30,8 @@ namespace {
   constexpr uint8_t ALT_LABEL_X = VARIO_BAR_WIDTH + 2;
   constexpr uint8_t ALT_X = 28;
   constexpr uint8_t ALT_BASELINE_Y = 39;
+  constexpr uint8_t ALT_VALUE_BASELINE_Y = ALT_BASELINE_Y + 4;
+  constexpr uint8_t ALT_INFO_BASELINE_Y = ALT_VALUE_BASELINE_Y - 20;
 
   enum ThermalTrackPageItem : uint8_t {
     cursor_thermalTrackPage_none,
@@ -233,15 +235,16 @@ namespace {
   void drawAltitudeField() {
     const uint8_t altType = settings.disp_thmPageAltType == altType_MSL ? altType_MSL : altType_GPS;
     u8g2.setFont(leaf_labels);
-    u8g2.setCursor(ALT_LABEL_X, ALT_BASELINE_Y - 8);
+    u8g2.setCursor(ALT_LABEL_X, ALT_INFO_BASELINE_Y);
     u8g2.print(settings.units_alt ? "ft" : "m");
-    u8g2.setCursor(ALT_LABEL_X, ALT_BASELINE_Y);
+    u8g2.print(' ');
     print_alt_label(altType);
 
-    display_alt_type(ALT_X, ALT_BASELINE_Y, leaf_21h, altType);
+    display_alt_type(ALT_X, ALT_VALUE_BASELINE_Y, leaf_21h, altType);
 
     if (thermalTrackPageCursor == cursor_thermalTrackPage_alt) {
-      display_selectionBox(ALT_LABEL_X - 1, ALT_BASELINE_Y - 23, 96 - (ALT_LABEL_X - 1), 25, 6);
+      display_selectionBox(ALT_LABEL_X - 1, ALT_VALUE_BASELINE_Y - 23, 96 - (ALT_LABEL_X - 1), 25,
+                           6);
     }
   }
 

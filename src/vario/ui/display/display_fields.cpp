@@ -1046,7 +1046,8 @@ void display_header(bool showTurnArrows) {
     u8g2.setFont(leaf_8x14);
     speedIsThreeDigits = display_speed(70, 14);
     u8g2.setFont(leaf_5h);
-    u8g2.setCursor(82, 21);
+    const uint8_t speedUnitsY = display.getPage() == MainPage::Navigate ? 21 : 20;
+    u8g2.setCursor(82, speedUnitsY);
     if (display.getPage() == MainPage::Navigate) {
       u8g2.setDrawColor(0);  // draw white on black for nav page
     }
