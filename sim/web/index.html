@@ -49,7 +49,12 @@
     background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
     padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
   }
-  canvas#lcd { display: block; image-rendering: pixelated; border-radius: 3px; }
+  canvas#lcd {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    border-radius: 3px;
+  }
 
   .dpad { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 44px); gap: 6px; }
   .dpad button {
@@ -213,14 +218,32 @@
   const canvas = document.getElementById('lcd');
   const context = canvas.getContext('2d');
   const LCD_ON = '#21252a', LCD_OFF = '#c7ccc1';
-  const scale = 3;
+  const preferredCssScale = 3;
+  let lcdPhysicalScale = 0;
+  let lcdDeviceScale = 0;
+
+  function configureLcdScale(frame) {
+    // Keep every Leaf LCD pixel an exact square of physical monitor pixels. A fixed CSS scale
+    // becomes fractional on displays using 125%, 150%, or browser zoom, which makes nominally
+    // identical one-pixel lines alternate in thickness.
+    const deviceScale = window.devicePixelRatio || 1;
+    const physicalScale = Math.max(1, Math.round(preferredCssScale * deviceScale));
+    const cssScale = physicalScale / deviceScale;
+    if (lcdPhysicalScale === physicalScale && lcdDeviceScale === deviceScale &&
+        canvas.width === frame.width * physicalScale) return;
+
+    lcdPhysicalScale = physicalScale;
+    lcdDeviceScale = deviceScale;
+    canvas.width = frame.width * physicalScale;
+    canvas.height = frame.height * physicalScale;
+    canvas.style.width = `${frame.width * cssScale}px`;
+    canvas.style.height = `${frame.height * cssScale}px`;
+    context.imageSmoothingEnabled = false;
+  }
 
   function drawFrame(frame) {
     const bytes = atob(frame.pixels);
-    if (canvas.width !== frame.width * scale) {
-      canvas.width = frame.width * scale;
-      canvas.height = frame.height * scale;
-    }
+    configureLcdScale(frame);
     context.fillStyle = LCD_OFF;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = LCD_ON;
@@ -228,7 +251,8 @@
       for (let x = 0; x < frame.width; x++) {
         const index = y * frame.width + x;
         const bit = (bytes.charCodeAt(index >> 3) >> (7 - (index & 7))) & 1;
-        if (bit) context.fillRect(x * scale, y * scale, scale, scale);
+        if (bit) context.fillRect(x * lcdPhysicalScale, y * lcdPhysicalScale,
+                                  lcdPhysicalScale, lcdPhysicalScale);
       }
     }
   }

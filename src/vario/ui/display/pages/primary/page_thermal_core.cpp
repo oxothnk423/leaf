@@ -22,12 +22,13 @@ namespace {
   constexpr int16_t MAP_LEFT = 0;
   constexpr int16_t MAP_TOP = 76;
   constexpr int16_t MAP_SIZE = 96;
-  constexpr int16_t AIRCRAFT_Y = MAP_TOP + MAP_SIZE / 2;
+  constexpr int16_t MAP_CENTER_Y = MAP_TOP + MAP_SIZE / 2;
+  constexpr int16_t AIRCRAFT_Y = MAP_CENTER_Y - 9;
   constexpr int16_t LEFT_AIRCRAFT_X = 20;
   constexpr int16_t RIGHT_AIRCRAFT_X = 76;
   constexpr int16_t CENTER_AIRCRAFT_X = 48;
   constexpr int16_t TARGET_RADIUS = 38;
-  constexpr int16_t TARGET_SHIFT_MAX = 14;
+  constexpr int16_t TARGET_SHIFT_MAX = 19;
   constexpr uint8_t VARIO_BAR_TOP = 16;
   constexpr uint8_t VARIO_BAR_WIDTH = 17;
   constexpr uint8_t VARIO_BAR_HALF_HEIGHT = 30;
@@ -86,34 +87,55 @@ namespace {
     u8g2.drawHLine(x - 1, y + 2, 3);
   }
 
-  void stampRing7Thick(int16_t x, int16_t y) {
+  void stampRing7(int16_t x, int16_t y) {
     u8g2.drawHLine(x - 1, y - 3, 3);
-    u8g2.drawHLine(x - 2, y - 2, 5);
-    u8g2.drawHLine(x - 3, y - 1, 3);
-    u8g2.drawHLine(x + 1, y - 1, 3);
-    u8g2.drawHLine(x - 3, y, 2);
-    u8g2.drawHLine(x + 2, y, 2);
-    u8g2.drawHLine(x - 3, y + 1, 3);
-    u8g2.drawHLine(x + 1, y + 1, 3);
-    u8g2.drawHLine(x - 2, y + 2, 5);
+    u8g2.drawHLine(x - 2, y - 2, 2);
+    u8g2.drawHLine(x + 1, y - 2, 2);
+    u8g2.drawHLine(x - 3, y - 1, 2);
+    u8g2.drawHLine(x + 2, y - 1, 2);
+    u8g2.drawPixel(x - 3, y);
+    u8g2.drawPixel(x + 3, y);
+    u8g2.drawHLine(x - 3, y + 1, 2);
+    u8g2.drawHLine(x + 2, y + 1, 2);
+    u8g2.drawHLine(x - 2, y + 2, 2);
+    u8g2.drawHLine(x + 1, y + 2, 2);
     u8g2.drawHLine(x - 1, y + 3, 3);
   }
 
-  void stampRing9Thick(int16_t x, int16_t y) {
-    u8g2.drawHLine(x - 2, y - 4, 5);
+  void stampRing9(int16_t x, int16_t y) {
+    u8g2.drawHLine(x - 1, y - 4, 3);
     u8g2.drawHLine(x - 3, y - 3, 7);
-    u8g2.drawHLine(x - 4, y - 2, 3);
-    u8g2.drawHLine(x + 2, y - 2, 3);
+    u8g2.drawHLine(x - 3, y - 2, 2);
+    u8g2.drawHLine(x + 2, y - 2, 2);
     u8g2.drawHLine(x - 4, y - 1, 2);
     u8g2.drawHLine(x + 3, y - 1, 2);
     u8g2.drawHLine(x - 4, y, 2);
     u8g2.drawHLine(x + 3, y, 2);
     u8g2.drawHLine(x - 4, y + 1, 2);
     u8g2.drawHLine(x + 3, y + 1, 2);
+    u8g2.drawHLine(x - 3, y + 2, 2);
+    u8g2.drawHLine(x + 2, y + 2, 2);
+    u8g2.drawHLine(x - 3, y + 3, 7);
+    u8g2.drawHLine(x - 1, y + 4, 3);
+  }
+
+  void stampRing11(int16_t x, int16_t y) {
+    u8g2.drawHLine(x - 1, y - 5, 3);
+    u8g2.drawHLine(x - 3, y - 4, 7);
+    u8g2.drawHLine(x - 4, y - 3, 9);
+    u8g2.drawHLine(x - 4, y - 2, 3);
+    u8g2.drawHLine(x + 2, y - 2, 3);
+    u8g2.drawHLine(x - 5, y - 1, 3);
+    u8g2.drawHLine(x + 3, y - 1, 3);
+    u8g2.drawHLine(x - 5, y, 3);
+    u8g2.drawHLine(x + 3, y, 3);
+    u8g2.drawHLine(x - 5, y + 1, 3);
+    u8g2.drawHLine(x + 3, y + 1, 3);
     u8g2.drawHLine(x - 4, y + 2, 3);
     u8g2.drawHLine(x + 2, y + 2, 3);
-    u8g2.drawHLine(x - 3, y + 3, 7);
-    u8g2.drawHLine(x - 2, y + 4, 5);
+    u8g2.drawHLine(x - 4, y + 3, 9);
+    u8g2.drawHLine(x - 3, y + 4, 7);
+    u8g2.drawHLine(x - 1, y + 5, 3);
   }
 
   uint8_t markerRadius(const ThermalCoreMarker& marker) {
@@ -122,12 +144,14 @@ namespace {
         return 1;
       case ThermalCoreMarkerGlyph::Ring5:
         return 2;
-      case ThermalCoreMarkerGlyph::Ring7Thick:
+      case ThermalCoreMarkerGlyph::Ring7:
         return 3;
-      case ThermalCoreMarkerGlyph::Ring9Thick:
+      case ThermalCoreMarkerGlyph::Ring9:
         return 4;
+      case ThermalCoreMarkerGlyph::Ring11:
+        return 5;
     }
-    return 4;
+    return 5;
   }
 
   bool markerFitsMap(const ThermalCoreMarker& marker) {
@@ -146,11 +170,14 @@ namespace {
       case ThermalCoreMarkerGlyph::Ring5:
         stampRing5(marker.x, marker.y);
         break;
-      case ThermalCoreMarkerGlyph::Ring7Thick:
-        stampRing7Thick(marker.x, marker.y);
+      case ThermalCoreMarkerGlyph::Ring7:
+        stampRing7(marker.x, marker.y);
         break;
-      case ThermalCoreMarkerGlyph::Ring9Thick:
-        stampRing9Thick(marker.x, marker.y);
+      case ThermalCoreMarkerGlyph::Ring9:
+        stampRing9(marker.x, marker.y);
+        break;
+      case ThermalCoreMarkerGlyph::Ring11:
+        stampRing11(marker.x, marker.y);
         break;
     }
   }
@@ -166,29 +193,29 @@ namespace {
   }
 
   void drawTargetScale(int16_t cx, int16_t cy) {
-    const int16_t left = cx - 28;
-    const int16_t right = cx + 28;
-    const int16_t top = cy - 11;
-    const int16_t bottom = cy + 11;
+    const int16_t left = cx - 25;
+    const int16_t right = cx + 25;
+    const int16_t top = cy - 10;
+    const int16_t bottom = cy + 10;
     const int16_t innerTop = cy - 4;
     const int16_t innerBottom = cy + 4;
 
     u8g2.setDrawColor(0);
-    u8g2.drawBox(left, innerTop, 56, 8);
-    u8g2.drawBox(cx - 6, top, 12, 22);
+    u8g2.drawBox(left, innerTop, 51, 9);
+    u8g2.drawBox(cx - 5, top, 11, 21);
     u8g2.setDrawColor(1);
 
-    u8g2.drawLine(left, innerTop, cx - 6, innerTop);
-    u8g2.drawLine(cx - 6, innerTop, cx - 6, top);
-    u8g2.drawLine(cx - 6, top, cx + 6, top);
-    u8g2.drawLine(cx + 6, top, cx + 6, innerTop);
-    u8g2.drawLine(cx + 6, innerTop, right, innerTop);
+    u8g2.drawLine(left, innerTop, cx - 5, innerTop);
+    u8g2.drawLine(cx - 5, innerTop, cx - 5, top);
+    u8g2.drawLine(cx - 5, top, cx + 5, top);
+    u8g2.drawLine(cx + 5, top, cx + 5, innerTop);
+    u8g2.drawLine(cx + 5, innerTop, right, innerTop);
     u8g2.drawLine(right, innerTop, right, innerBottom);
-    u8g2.drawLine(right, innerBottom, cx + 6, innerBottom);
-    u8g2.drawLine(cx + 6, innerBottom, cx + 6, bottom);
-    u8g2.drawLine(cx + 6, bottom, cx - 6, bottom);
-    u8g2.drawLine(cx - 6, bottom, cx - 6, innerBottom);
-    u8g2.drawLine(cx - 6, innerBottom, left, innerBottom);
+    u8g2.drawLine(right, innerBottom, cx + 5, innerBottom);
+    u8g2.drawLine(cx + 5, innerBottom, cx + 5, bottom);
+    u8g2.drawLine(cx + 5, bottom, cx - 5, bottom);
+    u8g2.drawLine(cx - 5, bottom, cx - 5, innerBottom);
+    u8g2.drawLine(cx - 5, innerBottom, left, innerBottom);
     u8g2.drawLine(left, innerBottom, left, innerTop);
   }
 
@@ -236,13 +263,47 @@ namespace {
     u8g2.print(settings.units_climb ? 'f' : 'm');
   }
 
-  void drawPlusGlyph(int16_t cx, int16_t cy) {
+  void drawGuidanceLine(int16_t cx, int16_t cy) {
     u8g2.setDrawColor(0);
-    u8g2.drawBox(cx - 4, cy - 10, 8, 20);
-    u8g2.drawBox(cx - 10, cy - 4, 20, 8);
+    u8g2.drawBox(cx - 2, cy - 8, 6, 16);
     u8g2.setDrawColor(1);
-    u8g2.drawBox(cx - 2, cy - 8, 4, 16);
-    u8g2.drawBox(cx - 8, cy - 2, 16, 4);
+    u8g2.drawBox(cx - 1, cy - 7, 4, 14);
+  }
+
+  void drawSmallGuidanceArrow(int16_t lineLeft, int16_t cy, int8_t direction) {
+    const int16_t baseX = direction > 0 ? lineLeft + 5 : lineLeft - 2;
+    u8g2.drawPixel(baseX, cy - 2);
+    u8g2.drawPixel(baseX, cy + 2);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 1, cy - 1, 2);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 1, cy + 1, 2);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 2, cy, 3);
+  }
+
+  void drawWideGuidanceArrow(int16_t baseX, int16_t cy, int8_t direction) {
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 1, cy - 2, 2);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 1, cy + 2, 2);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 3, cy - 1, 4);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 3, cy + 1, 4);
+    u8g2.drawHLine(direction > 0 ? baseX : baseX - 5, cy, 6);
+  }
+
+  void drawGuidanceReticle(int16_t cx, int16_t cy, int16_t neutralCx) {
+    drawGuidanceLine(cx, cy);
+
+    const int16_t error = neutralCx - cx;
+    const int16_t distance = abs(error);
+    if (distance <= 2) return;
+
+    const int8_t direction = error > 0 ? 1 : -1;
+    const int16_t lineLeft = cx - 1;
+    if (distance <= 6) {
+      drawSmallGuidanceArrow(lineLeft, cy, direction);
+      return;
+    }
+
+    const int16_t firstBaseX = direction > 0 ? lineLeft + 5 : lineLeft - 2;
+    drawWideGuidanceArrow(firstBaseX, cy, direction);
+    if (distance >= 14) drawWideGuidanceArrow(firstBaseX + direction * 7, cy, direction);
   }
 
   void toggleAltitudeType() {
@@ -263,7 +324,9 @@ namespace {
                               : direction > 0 ? LEFT_AIRCRAFT_X
                                               : CENTER_AIRCRAFT_X;
     const int16_t adviceShift = estimate.valid ? (estimate.adviceQ7 * TARGET_SHIFT_MAX) / 127 : 0;
-    const int16_t dynamicRadius = min<int16_t>(46, max<int16_t>(20, TARGET_RADIUS + adviceShift));
+    const int16_t dynamicRadius =
+        min<int16_t>(TARGET_RADIUS + TARGET_SHIFT_MAX,
+                     max<int16_t>(TARGET_RADIUS - TARGET_SHIFT_MAX, TARGET_RADIUS + adviceShift));
     const int16_t targetCx = turnSide == 0 ? aircraftX : aircraftX + turnSide * dynamicRadius;
     const bool hasTurn = turnSide != 0;
     const bool hasGuidance = estimate.valid;
@@ -277,12 +340,11 @@ namespace {
       drawMarker(estimate.markers[i]);
     }
 
-    if (hasTurn) {
-      const int16_t neutralTargetCx = aircraftX + turnSide * TARGET_RADIUS;
-      drawTargetScale(neutralTargetCx, AIRCRAFT_Y);
-    }
+    const int16_t neutralTargetCx =
+        hasTurn ? aircraftX + turnSide * TARGET_RADIUS : CENTER_AIRCRAFT_X;
+    if (hasTurn) drawTargetScale(neutralTargetCx, MAP_CENTER_Y);
 
-    if (hasGuidance) drawPlusGlyph(targetCx, AIRCRAFT_Y);
+    if (hasGuidance) drawGuidanceReticle(targetCx, MAP_CENTER_Y, neutralTargetCx);
     drawAircraft(aircraftX, AIRCRAFT_Y);
     u8g2.drawFrame(MAP_LEFT, MAP_TOP, MAP_SIZE, MAP_SIZE);
   }

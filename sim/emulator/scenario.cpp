@@ -137,7 +137,9 @@ namespace sim {
       return buf;
     }
 
-    constexpr int MOTION_HZ = 20;  // the rate the device's DMP is configured to produce
+    constexpr int MOTION_HZ = 20;    // the rate the device's DMP is configured to produce
+    constexpr int PRESSURE_HZ = 20;  // the rate the device's barometer pipeline expects
+    constexpr uint32_t PRESSURE_INTERVAL_MS = 1000 / PRESSURE_HZ;
 
     constexpr double RADIANS_PER_DEGREE = M_PI / 180.0;
     constexpr double METRES_PER_DEGREE_LAT = 111320.0;
@@ -294,8 +296,10 @@ namespace sim {
     int firstSecondOfDay = 0;
     double previousLat = 0;
     double previousLon = 0;
+    double previousPressureAltitude = 0;
     int previousSecondOfDay = 0;
     int previousElapsedS = 0;
+    uint32_t previousAtMs = 0;
     size_t trackFieldOffset = std::string::npos;
     size_t trackFieldLength = 0;
     // B records carry a time of day, not a date, so an evening flight that runs past midnight
@@ -350,11 +354,13 @@ namespace sim {
       const double pressureAltitude = digits(25, 5);
       const double gnssAltitude = digits(30, 5);
 
-      if (!haveFirst) {
+      const bool isFirstFix = !haveFirst;
+      if (isFirstFix) {
         haveFirst = true;
         firstSecondOfDay = secondOfDay;
         previousLat = latitude;
         previousLon = longitude;
+        previousPressureAltitude = pressureAltitude;
         previousSecondOfDay = secondOfDay;
       }
 
@@ -407,13 +413,29 @@ namespace sim {
         into.push_back({atMs, "G" + std::to_string(atMs) + "," + sentence});
       }
 
-      // Pressure at 4Hz between fixes, interpolated from the tracklog's pressure altitude: the
-      // vario reads climb from pressure, and 1Hz steps would make it read as a staircase.
-      for (int sub = 0; sub < 4; sub++) {
-        const uint32_t subMs = atMs + (uint32_t)(sub * 250);
+      // The real barometer feeds the firmware at 20 Hz, and its fixed-size climb filters rely on
+      // that cadence. Interpolate between adjacent pressure-altitude fixes so IGC replay neither
+      // turns the one-second filter into a five-second filter nor presents a 1 Hz staircase.
+      if (isFirstFix) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "P%u,%d", subMs, pressureFromAltitude(pressureAltitude));
-        into.push_back({subMs, buf});
+        snprintf(buf, sizeof(buf), "P%u,%d", atMs, pressureFromAltitude(pressureAltitude));
+        into.push_back({atMs, buf});
+      } else if (atMs > previousAtMs) {
+        const uint32_t intervalMs = atMs - previousAtMs;
+        for (uint32_t offsetMs = PRESSURE_INTERVAL_MS; offsetMs < intervalMs;
+             offsetMs += PRESSURE_INTERVAL_MS) {
+          const double fraction = static_cast<double>(offsetMs) / intervalMs;
+          const double interpolatedAltitude =
+              previousPressureAltitude + (pressureAltitude - previousPressureAltitude) * fraction;
+          const uint32_t sampleMs = previousAtMs + offsetMs;
+          char buf[48];
+          snprintf(buf, sizeof(buf), "P%u,%d", sampleMs,
+                   pressureFromAltitude(interpolatedAltitude));
+          into.push_back({sampleMs, buf});
+        }
+        char buf[48];
+        snprintf(buf, sizeof(buf), "P%u,%d", atMs, pressureFromAltitude(pressureAltitude));
+        into.push_back({atMs, buf});
       }
 
       // A tracklog has no IMU data, so the emulator supplies level flight at 1g.  Without it the
@@ -426,13 +448,26 @@ namespace sim {
 
       previousLat = latitude;
       previousLon = longitude;
+      previousPressureAltitude = pressureAltitude;
       previousSecondOfDay = secondOfDay;
       previousElapsedS = elapsedS;
+      previousAtMs = atMs;
     }
 
     if (!haveFirst) {
       error = "no B records found in " + path;
       return false;
+    }
+
+    // The final fix has no successor to interpolate toward. Hold its pressure through the final
+    // second, matching the motion samples emitted above and preserving the recording's tail.
+    for (uint32_t offsetMs = PRESSURE_INTERVAL_MS; offsetMs < 1000;
+         offsetMs += PRESSURE_INTERVAL_MS) {
+      const uint32_t sampleMs = previousAtMs + offsetMs;
+      char buf[48];
+      snprintf(buf, sizeof(buf), "P%u,%d", sampleMs,
+               pressureFromAltitude(previousPressureAltitude));
+      into.push_back({sampleMs, buf});
     }
     return true;
   }

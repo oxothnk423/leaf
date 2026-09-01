@@ -9,8 +9,9 @@ constexpr uint8_t THERMAL_CORE_MAX_MARKERS = ThermalTracker::MAX_DETECTOR_SAMPLE
 enum class ThermalCoreMarkerGlyph : uint8_t {
   Cross3 = 0,
   Ring5 = 1,
-  Ring7Thick = 2,
-  Ring9Thick = 3,
+  Ring7 = 2,
+  Ring9 = 3,
+  Ring11 = 4,
 };
 
 struct ThermalCoreMarker {
@@ -41,6 +42,8 @@ class ThermalCore {
   int8_t activeTurnDirection_ = 0;
   uint32_t straightDurationMs_ = 0;
   uint32_t lastGuidanceSampleMs_ = 0;
+  bool episodeClimbScaleValid_ = false;
+  int16_t episodeMaxClimbCms_ = 0;
 };
 
 extern ThermalCore thermalCore;

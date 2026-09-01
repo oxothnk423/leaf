@@ -20,8 +20,8 @@ namespace {
   constexpr int16_t TURN_EXIT_MAX_CLIMB_CMS = 20;
   constexpr uint8_t GUIDANCE_BIN_COUNT = 12;
   constexpr uint8_t LOOKBACK_S = 40;
-  constexpr float METERS_PER_PX = 0.9f;
-  constexpr int16_t AIRCRAFT_Y = 124;
+  constexpr float METERS_PER_PX = 1.15f;
+  constexpr int16_t MAP_CENTER_Y = 124;
   constexpr int16_t LEFT_AIRCRAFT_X = 20;
   constexpr int16_t RIGHT_AIRCRAFT_X = 76;
   constexpr int16_t CENTER_AIRCRAFT_X = 48;
@@ -121,17 +121,26 @@ namespace {
     return 0;
   }
 
-  ThermalCoreMarkerGlyph glyphForClimb(int16_t climbCms) {
+  constexpr int16_t DEFAULT_BREADCRUMB_SCALE_CMS = 400;
+
+  ThermalCoreMarkerGlyph glyphForClimb(int16_t climbCms, int16_t episodeMaxClimbCms) {
     const int16_t climbStart = settings.vario_climbStart;
     if (climbCms < climbStart) return ThermalCoreMarkerGlyph::Cross3;
 
-    constexpr int16_t MAX_BUCKET_CLIMB_CMS = 500;
-    const int16_t span = max<int16_t>(1, MAX_BUCKET_CLIMB_CMS - climbStart);
-    const int16_t lightLimit = climbStart + span / 3;
-    const int16_t mediumLimit = climbStart + (2 * span) / 3;
-    if (climbCms < lightLimit) return ThermalCoreMarkerGlyph::Ring5;
-    if (climbCms < mediumLimit) return ThermalCoreMarkerGlyph::Ring7Thick;
-    return ThermalCoreMarkerGlyph::Ring9Thick;
+    // Keep familiar 1 m/s buckets unless this thermal exceeds 4 m/s. Above that, expand all
+    // four buckets proportionally so the strongest breadcrumb still occupies the largest glyph.
+    const int32_t scaleCms = max<int16_t>(DEFAULT_BREADCRUMB_SCALE_CMS, episodeMaxClimbCms);
+    const int32_t scaledClimb = static_cast<int32_t>(climbCms) * 4;
+    if (scaledClimb < scaleCms) return ThermalCoreMarkerGlyph::Ring5;
+    if (scaledClimb < scaleCms * 2) return ThermalCoreMarkerGlyph::Ring7;
+    if (scaledClimb < scaleCms * 3) return ThermalCoreMarkerGlyph::Ring9;
+    return ThermalCoreMarkerGlyph::Ring11;
+  }
+
+  int16_t maxClimb(const ThermalTracker::CoreSample* samples, uint8_t count) {
+    int16_t result = settings.vario_climbStart;
+    for (uint8_t i = 0; i < count; ++i) result = max(result, samples[i].climbCms);
+    return result;
   }
 
   uint8_t ageWeight(uint32_t ageS) {
@@ -148,7 +157,7 @@ namespace {
     const float right = cosf(heading) * dx - sinf(heading) * dy;
     const float ahead = sinf(heading) * dx + cosf(heading) * dy;
     x = static_cast<int16_t>(roundf(aircraftX + right / METERS_PER_PX));
-    y = static_cast<int16_t>(roundf(AIRCRAFT_Y - ahead / METERS_PER_PX));
+    y = static_cast<int16_t>(roundf(MAP_CENTER_Y - ahead / METERS_PER_PX));
     if (rightOut != nullptr) *rightOut = right;
     if (aheadOut != nullptr) *aheadOut = ahead;
   }
@@ -211,6 +220,8 @@ void ThermalCore::reset() {
   activeTurnDirection_ = 0;
   straightDurationMs_ = 0;
   lastGuidanceSampleMs_ = 0;
+  episodeClimbScaleValid_ = false;
+  episodeMaxClimbCms_ = 0;
 }
 
 void ThermalCore::update() {
@@ -220,6 +231,7 @@ void ThermalCore::update() {
   if (sampleCount == 0) return;
 
   const ThermalTracker::CoreSample& latest = samples[sampleCount - 1];
+  const bool guidanceWasActive = turnGuidanceActive_;
   const uint8_t turnWindowSamples =
       turnGuidancePreviouslyActive_ ? REENTRY_TURN_SAMPLES : INITIAL_TURN_SAMPLES;
   const uint16_t requiredTurnDeg =
@@ -261,6 +273,21 @@ void ThermalCore::update() {
     activeTurnDirection_ = directionForTurn(recentTurn);
   }
 
+  const int16_t recentMaxClimbCms = maxClimb(samples, sampleCount);
+  if (turnGuidanceActive_) {
+    if (!guidanceWasActive) {
+      episodeMaxClimbCms_ = recentMaxClimbCms;
+    } else {
+      episodeMaxClimbCms_ = max(episodeMaxClimbCms_, latest.climbCms);
+    }
+    episodeClimbScaleValid_ = true;
+  } else if (guidanceWasActive) {
+    episodeClimbScaleValid_ = false;
+    episodeMaxClimbCms_ = 0;
+  }
+  const int16_t breadcrumbMaxClimbCms =
+      episodeClimbScaleValid_ ? episodeMaxClimbCms_ : DEFAULT_BREADCRUMB_SCALE_CMS;
+
   const int8_t direction = turnGuidanceActive_ ? activeTurnDirection_ : 0;
   const int16_t aircraftX = direction < 0   ? RIGHT_AIRCRAFT_X
                             : direction > 0 ? LEFT_AIRCRAFT_X
@@ -292,7 +319,7 @@ void ThermalCore::update() {
     marker.visible = x >= 0 && x < SCREEN_W && y >= MAP_TOP && y < MAP_TOP + MAP_SIZE;
     marker.x = x;
     marker.y = y;
-    marker.glyph = glyphForClimb(samples[i].climbCms);
+    marker.glyph = glyphForClimb(samples[i].climbCms, breadcrumbMaxClimbCms);
   }
 
   if (!turnGuidanceActive_ || direction == 0) return;
