@@ -301,6 +301,7 @@ void thermalTrackPage_draw() {
 
     display_varioBar(VARIO_BAR_TOP, VARIO_BAR_HALF_HEIGHT, VARIO_BAR_HALF_HEIGHT, VARIO_BAR_WIDTH,
                      climbRate);
+    display_climbRatePointerTriangle(VARIO_BAR_WIDTH, VARIO_BAR_TOP + VARIO_BAR_HALF_HEIGHT, 7);
     maskMapCircle();
     drawThermals();
     drawMapRingsAndLabels();
