@@ -23,6 +23,8 @@ namespace {
   constexpr int16_t MAP_TOP = 76;
   constexpr int16_t MAP_SIZE = 96;
   constexpr int16_t MAP_CENTER_Y = MAP_TOP + MAP_SIZE / 2;
+  constexpr int16_t GUIDANCE_CENTER_X = MAP_LEFT + MAP_SIZE / 2;
+  constexpr int16_t GUIDANCE_CENTER_Y = MAP_TOP;
   constexpr int16_t AIRCRAFT_Y = MAP_CENTER_Y - 9;
   constexpr int16_t LEFT_AIRCRAFT_X = 20;
   constexpr int16_t RIGHT_AIRCRAFT_X = 76;
@@ -39,6 +41,16 @@ namespace {
   constexpr uint8_t ALT_INFO_BASELINE_Y = ALT_VALUE_BASELINE_Y - 20;
   constexpr uint8_t CLIMB_X = 30;
   constexpr uint8_t CLIMB_BASELINE_Y = 63;
+  constexpr uint8_t AIRCRAFT_GLYPH_WIDTH = 19;
+  constexpr uint8_t AIRCRAFT_GLYPH_HEIGHT = 19;
+  constexpr uint32_t AIRCRAFT_BLACK[AIRCRAFT_GLYPH_HEIGHT] = {
+      0x00000, 0x00200, 0x00700, 0x00700, 0x00F80, 0x00D80, 0x018C0, 0x018C0, 0x03060, 0x03060,
+      0x06030, 0x06030, 0x0C018, 0x0C018, 0x19FCC, 0x1FFFC, 0x3F07E, 0x3800E, 0x00000,
+  };
+  constexpr uint32_t AIRCRAFT_WHITE[AIRCRAFT_GLYPH_HEIGHT] = {
+      0x00700, 0x00D80, 0x00880, 0x018C0, 0x01040, 0x03260, 0x02720, 0x06730, 0x04F90, 0x0CF98,
+      0x09FC8, 0x19FCC, 0x13FE4, 0x33FE6, 0x26032, 0x60003, 0x40001, 0x40001, 0x7800F,
+  };
 
   enum ThermalCorePageItem : uint8_t {
     cursor_thermalCorePage_none,
@@ -185,13 +197,22 @@ namespace {
   }
 
   void drawAircraft(int16_t x, int16_t y) {
-    u8g2.drawTriangle(x, y - 12, x + 8, y + 9, x - 8, y + 9);
+    const int16_t x0 = x - AIRCRAFT_GLYPH_WIDTH / 2;
+    const int16_t y0 = y - AIRCRAFT_GLYPH_HEIGHT / 2;
+
     u8g2.setDrawColor(0);
-    u8g2.drawTriangle(x, y + 1, x + 4, y + 8, x - 4, y + 8);
+    for (uint8_t row = 0; row < AIRCRAFT_GLYPH_HEIGHT; ++row) {
+      for (uint8_t col = 0; col < AIRCRAFT_GLYPH_WIDTH; ++col) {
+        if (AIRCRAFT_WHITE[row] & (1UL << col)) u8g2.drawPixel(x0 + col, y0 + row);
+      }
+    }
+
     u8g2.setDrawColor(1);
-    u8g2.drawLine(x, y - 12, x + 8, y + 9);
-    u8g2.drawLine(x, y - 12, x - 8, y + 9);
-    u8g2.drawLine(x - 8, y + 9, x + 8, y + 9);
+    for (uint8_t row = 0; row < AIRCRAFT_GLYPH_HEIGHT; ++row) {
+      for (uint8_t col = 0; col < AIRCRAFT_GLYPH_WIDTH; ++col) {
+        if (AIRCRAFT_BLACK[row] & (1UL << col)) u8g2.drawPixel(x0 + col, y0 + row);
+      }
+    }
   }
 
   void drawTargetScale(int16_t cx, int16_t cy) {
@@ -346,11 +367,14 @@ namespace {
 
     const int16_t neutralTargetCx =
         hasTurn ? aircraftX + turnSide * TARGET_RADIUS : CENTER_AIRCRAFT_X;
-    if (hasTurn) drawTargetScale(neutralTargetCx, MAP_CENTER_Y);
-
-    if (hasGuidance) drawGuidanceReticle(targetCx, MAP_CENTER_Y, neutralTargetCx);
     drawAircraft(aircraftX, AIRCRAFT_Y);
     u8g2.drawFrame(MAP_LEFT, MAP_TOP, MAP_SIZE, MAP_SIZE);
+
+    if (hasTurn) drawTargetScale(GUIDANCE_CENTER_X, GUIDANCE_CENTER_Y);
+    if (hasGuidance) {
+      const int16_t guidanceCx = GUIDANCE_CENTER_X + targetCx - neutralTargetCx;
+      drawGuidanceReticle(guidanceCx, GUIDANCE_CENTER_Y, GUIDANCE_CENTER_X);
+    }
   }
 }  // namespace
 
