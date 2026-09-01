@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 
@@ -136,7 +137,9 @@ namespace sim {
       return buf;
     }
 
-    constexpr int MOTION_HZ = 20;  // the rate the device's DMP is configured to produce
+    constexpr int MOTION_HZ = 20;    // the rate the device's DMP is configured to produce
+    constexpr int PRESSURE_HZ = 20;  // the rate the device's barometer pipeline expects
+    constexpr uint32_t PRESSURE_INTERVAL_MS = 1000 / PRESSURE_HZ;
 
     constexpr double RADIANS_PER_DEGREE = M_PI / 180.0;
     constexpr double METRES_PER_DEGREE_LAT = 111320.0;
@@ -293,13 +296,45 @@ namespace sim {
     int firstSecondOfDay = 0;
     double previousLat = 0;
     double previousLon = 0;
+    double previousPressureAltitude = 0;
     int previousSecondOfDay = 0;
     int previousElapsedS = 0;
+    uint32_t previousAtMs = 0;
+    size_t trackFieldOffset = std::string::npos;
+    size_t trackFieldLength = 0;
     // B records carry a time of day, not a date, so an evening flight that runs past midnight
     // sees the clock wrap back to zero.  Each wrap adds a day here.
     int dayOffsetS = 0;
 
     while (std::getline(in, line)) {
+      // I records declare extension fields using one-based inclusive columns.  Leaf writes its
+      // receiver-reported track bearing as TRT, but its position is not assumed here so files
+      // from other recorders remain compatible.
+      if (line.size() >= 3 && line[0] == 'I' && isdigit((unsigned char)line[1]) &&
+          isdigit((unsigned char)line[2])) {
+        const int extensionCount = atoi(line.substr(1, 2).c_str());
+        for (int i = 0; i < extensionCount; ++i) {
+          const size_t descriptor = 3 + (size_t)i * 7;
+          if (descriptor + 7 > line.size()) break;
+          const std::string startText = line.substr(descriptor, 2);
+          const std::string endText = line.substr(descriptor + 2, 2);
+          const bool numericColumns =
+              std::all_of(startText.begin(), startText.end(),
+                          [](unsigned char c) { return std::isdigit(c); }) &&
+              std::all_of(endText.begin(), endText.end(),
+                          [](unsigned char c) { return std::isdigit(c); });
+          if (!numericColumns || line.substr(descriptor + 4, 3) != "TRT") continue;
+
+          const int startColumn = atoi(startText.c_str());
+          const int endColumn = atoi(endText.c_str());
+          if (startColumn > 0 && endColumn >= startColumn) {
+            trackFieldOffset = (size_t)(startColumn - 1);
+            trackFieldLength = (size_t)(endColumn - startColumn + 1);
+          }
+        }
+        continue;
+      }
+
       // B HHMMSS DDMMmmm N DDDMMmmm E A PPPPP GGGGG
       if (line.size() < 35 || line[0] != 'B') continue;
 
@@ -319,11 +354,13 @@ namespace sim {
       const double pressureAltitude = digits(25, 5);
       const double gnssAltitude = digits(30, 5);
 
-      if (!haveFirst) {
+      const bool isFirstFix = !haveFirst;
+      if (isFirstFix) {
         haveFirst = true;
         firstSecondOfDay = secondOfDay;
         previousLat = latitude;
         previousLon = longitude;
+        previousPressureAltitude = pressureAltitude;
         previousSecondOfDay = secondOfDay;
       }
 
@@ -333,8 +370,8 @@ namespace sim {
       const int elapsedS = secondOfDay + dayOffsetS - firstSecondOfDay;
       const uint32_t atMs = (uint32_t)(elapsedS * 1000);
 
-      // IGC has no speed or heading, so derive them from consecutive fixes: that is what the
-      // receiver reports on a real flight, and the firmware's wind and navigation code needs it.
+      // Derive speed and a fallback track bearing from consecutive fixes.  If the I record
+      // declares a valid TRT field below, prefer that receiver-reported track instead.
       const int dt = elapsedS - previousElapsedS;
       double speedKnots = 0;
       double courseDeg = 0;
@@ -346,6 +383,17 @@ namespace sim {
         speedKnots = (distance / dt) * METRES_PER_SECOND_TO_KNOTS;
         courseDeg = atan2(dLon, dLat) / RADIANS_PER_DEGREE;
         if (courseDeg < 0) courseDeg += 360.0;
+      }
+
+      if (trackFieldOffset != std::string::npos && trackFieldLength > 0 &&
+          trackFieldOffset + trackFieldLength <= line.size()) {
+        const std::string trackText = line.substr(trackFieldOffset, trackFieldLength);
+        const bool numericTrack = std::all_of(trackText.begin(), trackText.end(),
+                                              [](unsigned char c) { return std::isdigit(c); });
+        if (numericTrack) {
+          const int recordedTrack = atoi(trackText.c_str());
+          if (recordedTrack >= 0 && recordedTrack < 360) courseDeg = recordedTrack;
+        }
       }
 
       Fix fix;
@@ -365,13 +413,29 @@ namespace sim {
         into.push_back({atMs, "G" + std::to_string(atMs) + "," + sentence});
       }
 
-      // Pressure at 4Hz between fixes, interpolated from the tracklog's pressure altitude: the
-      // vario reads climb from pressure, and 1Hz steps would make it read as a staircase.
-      for (int sub = 0; sub < 4; sub++) {
-        const uint32_t subMs = atMs + (uint32_t)(sub * 250);
+      // The real barometer feeds the firmware at 20 Hz, and its fixed-size climb filters rely on
+      // that cadence. Interpolate between adjacent pressure-altitude fixes so IGC replay neither
+      // turns the one-second filter into a five-second filter nor presents a 1 Hz staircase.
+      if (isFirstFix) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "P%u,%d", subMs, pressureFromAltitude(pressureAltitude));
-        into.push_back({subMs, buf});
+        snprintf(buf, sizeof(buf), "P%u,%d", atMs, pressureFromAltitude(pressureAltitude));
+        into.push_back({atMs, buf});
+      } else if (atMs > previousAtMs) {
+        const uint32_t intervalMs = atMs - previousAtMs;
+        for (uint32_t offsetMs = PRESSURE_INTERVAL_MS; offsetMs < intervalMs;
+             offsetMs += PRESSURE_INTERVAL_MS) {
+          const double fraction = static_cast<double>(offsetMs) / intervalMs;
+          const double interpolatedAltitude =
+              previousPressureAltitude + (pressureAltitude - previousPressureAltitude) * fraction;
+          const uint32_t sampleMs = previousAtMs + offsetMs;
+          char buf[48];
+          snprintf(buf, sizeof(buf), "P%u,%d", sampleMs,
+                   pressureFromAltitude(interpolatedAltitude));
+          into.push_back({sampleMs, buf});
+        }
+        char buf[48];
+        snprintf(buf, sizeof(buf), "P%u,%d", atMs, pressureFromAltitude(pressureAltitude));
+        into.push_back({atMs, buf});
       }
 
       // A tracklog has no IMU data, so the emulator supplies level flight at 1g.  Without it the
@@ -384,13 +448,26 @@ namespace sim {
 
       previousLat = latitude;
       previousLon = longitude;
+      previousPressureAltitude = pressureAltitude;
       previousSecondOfDay = secondOfDay;
       previousElapsedS = elapsedS;
+      previousAtMs = atMs;
     }
 
     if (!haveFirst) {
       error = "no B records found in " + path;
       return false;
+    }
+
+    // The final fix has no successor to interpolate toward. Hold its pressure through the final
+    // second, matching the motion samples emitted above and preserving the recording's tail.
+    for (uint32_t offsetMs = PRESSURE_INTERVAL_MS; offsetMs < 1000;
+         offsetMs += PRESSURE_INTERVAL_MS) {
+      const uint32_t sampleMs = previousAtMs + offsetMs;
+      char buf[48];
+      snprintf(buf, sizeof(buf), "P%u,%d", sampleMs,
+               pressureFromAltitude(previousPressureAltitude));
+      into.push_back({sampleMs, buf});
     }
     return true;
   }

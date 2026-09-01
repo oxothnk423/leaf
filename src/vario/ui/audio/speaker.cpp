@@ -116,9 +116,9 @@ void Speaker::updateVarioNote(int32_t verticalRate) {
     return;
   }
 
-  uint16_t newVarioNote;
-  uint16_t newVarioPlaySamples;
-  uint16_t newVarioRestSamples;
+  uint16_t newVarioNote = note::NONE;
+  uint16_t newVarioPlaySamples = 0;
+  uint16_t newVarioRestSamples = 0;
 
   int sinkAlarm_cms;
   if (settings.vario_sinkAlarm_units) {
@@ -165,7 +165,11 @@ void Speaker::updateVarioNote(int32_t verticalRate) {
     }
 
   } else {
-    varioNote_ = note::NONE;
+    // Stay fully silent in the deadband. These defaults also prevent stale stack values from being
+    // interpreted as a very low PWM frequency by the simulator (or an arbitrary tone on-device).
+    betweenVarioBeeps_ = false;
+    varioPlaySampleCount_ = 0;
+    varioRestSampleCount_ = 0;
   }
 
   varioNote_ = newVarioNote;

@@ -55,7 +55,7 @@ void simplePage_draw() {
       display_GPS_icon(84, 12);
     } else {
       u8g2.setFont(leaf_labels);
-      u8g2.setCursor(77, 40);
+      u8g2.setCursor(77, 39);
       if (settings.units_speed)
         u8g2.print("MPH");
       else

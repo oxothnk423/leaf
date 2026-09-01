@@ -87,6 +87,9 @@ namespace sim {
     std::vector<ToneEvent> toneEvents_;
     uint64_t toneFirstSeq_ = 0;  // sequence number of toneEvents_.front()
 
+    // mutex_ must already be held.
+    void appendToneEventLocked();
+
     std::deque<uint8_t> gpsRx_;
     std::string gpsTx_;
   };

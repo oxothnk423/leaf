@@ -81,6 +81,10 @@ bool ThermalTracker::readCurrentFix(Sample& sample) {
   if (!gps.lastValidFix(fix) || !baro.climbRateFilteredValid()) return false;
   if (!originValid_) establishOrigin(fix.latitude, fix.longitude);
 
+  const uint32_t nowMs = millis();
+  const int32_t speedCms =
+      isfinite(fix.speedMps) ? static_cast<int32_t>(roundf(fix.speedMps * 100.0f)) : 0;
+
   sample.valid = true;
   sample.xM = clampInt16((fix.longitude - originLon_) * metersPerDegLon_);
   sample.yM = clampInt16((fix.latitude - originLat_) * METERS_PER_DEG_LAT);
@@ -89,7 +93,9 @@ bool ThermalTracker::readCurrentFix(Sample& sample) {
   sample.climb1SecCms = static_cast<int16_t>(constrain(
       baro.climbRate1SecAverageValid() ? baro.climbRate1SecAverage() : baro.climbRateFiltered(),
       -32768L, 32767L));
-  sample.timeS = millis() / 1000;
+  sample.speedCms = static_cast<uint16_t>(constrain(speedCms, 0L, 65535L));
+  sample.timeS = nowMs / 1000;
+  sample.capturedAtMs = nowMs;
 
   currentXM_ = sample.xM;
   currentYM_ = sample.yM;
@@ -127,7 +133,9 @@ uint8_t ThermalTracker::recentCoreSamples(CoreSample* out, uint8_t maxCount) con
     out[i].yM = sample.yM;
     out[i].courseDeg = sample.courseDeg;
     out[i].climbCms = sample.climb1SecCms;
+    out[i].speedCms = sample.speedCms;
     out[i].timeS = sample.timeS;
+    out[i].capturedAtMs = sample.capturedAtMs;
   }
   return count;
 }

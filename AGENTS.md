@@ -15,6 +15,11 @@
 
 ## Local verification
 
+- Distinguish simulator-only iteration from hardware verification. When the user is developing or
+  visually evaluating behavior in `sim/`, run the formatter and simulator build/tests, but do not
+  run a PlatformIO firmware build, scan serial ports, or flash a physical Leaf unless the user
+  explicitly asks for hardware verification. Resume the full workflow below for firmware work that
+  is intended for hardware or when the user requests a device build/flash.
 - For Leaf firmware work, use this verification workflow:
   1. Run the formatter:
      `powershell -ExecutionPolicy Bypass -File src\scripts\format_all_files.ps1`

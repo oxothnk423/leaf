@@ -460,11 +460,16 @@ void display_varioBar(uint8_t barTop, uint8_t barClimbHeight, uint8_t barSinkHei
 void display_climbRatePointerBox(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t triSize) {
   u8g2.setDrawColor(1);
   u8g2.drawBox(x, y, w, h);
-  u8g2.drawTriangle(x - triSize, y + (h) / 2, x, y + (h) / 2 - triSize - 1, x,
-                    y + (h) / 2 + triSize + 1);
+  display_climbRatePointerTriangle(x, y + h / 2, triSize);
+}
+
+void display_climbRatePointerTriangle(uint8_t x, uint8_t centerY, uint8_t triSize) {
+  u8g2.setDrawColor(1);
+  u8g2.drawTriangle(x - triSize, centerY, x, centerY - triSize - 1, x, centerY + triSize + 1);
   u8g2.setDrawColor(0);  // mask out a border between the vario bar and the triangle
-  u8g2.drawLine(x - triSize - 1, y + (h) / 2, x - 2, y + (h) / 2 - triSize + 1);
-  u8g2.drawLine(x - triSize - 1, y + (h) / 2, x - 2, y + (h) / 2 + triSize - 1);
+  u8g2.drawLine(x - triSize - 1, centerY, x - 2, centerY - triSize + 1);
+  u8g2.drawLine(x - triSize - 1, centerY, x - 2, centerY + triSize - 1);
+  u8g2.setDrawColor(1);
 }
 
 void display_climbRate(uint8_t x, uint8_t y, const uint8_t* font, int16_t displayClimbRate) {
@@ -1046,7 +1051,8 @@ void display_header(bool showTurnArrows) {
     u8g2.setFont(leaf_8x14);
     speedIsThreeDigits = display_speed(70, 14);
     u8g2.setFont(leaf_5h);
-    u8g2.setCursor(82, 21);
+    const uint8_t speedUnitsY = display.getPage() == MainPage::Navigate ? 21 : 20;
+    u8g2.setCursor(82, speedUnitsY);
     if (display.getPage() == MainPage::Navigate) {
       u8g2.setDrawColor(0);  // draw white on black for nav page
     }

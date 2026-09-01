@@ -46,6 +46,7 @@ class WiFiClass {
   bool softAPdisconnect(bool wifiOff = false) { return true; }
   IPAddress localIP() { return IPAddress(0, 0, 0, 0); }
   IPAddress softAPIP() { return IPAddress(0, 0, 0, 0); }
+  int hostByName(const char*, IPAddress&) { return 0; }
   String SSID() { return String(); }
   String macAddress() { return String("00:00:00:00:00:00"); }
   int32_t RSSI() { return 0; }

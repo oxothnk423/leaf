@@ -47,7 +47,9 @@ class ThermalTracker {
     int16_t yM = 0;
     int16_t courseDeg = 0;
     int16_t climbCms = 0;
+    uint16_t speedCms = 0;
     uint32_t timeS = 0;
+    uint32_t capturedAtMs = 0;
   };
 
   void reset();
@@ -69,7 +71,9 @@ class ThermalTracker {
     int16_t courseDeg = 0;
     int16_t climb30Cms = 0;
     int16_t climb1SecCms = 0;
+    uint16_t speedCms = 0;
     uint32_t timeS = 0;
+    uint32_t capturedAtMs = 0;
   };
 
   struct SpineBucket {

@@ -41,6 +41,8 @@ void display_varioBar(uint8_t varioBarTop, uint8_t varioBarClimbHeight, uint8_t 
 
 // black box with left-facing arrow pointing at vario bar
 void display_climbRatePointerBox(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t triSize);
+// left-facing triangle with a white border, centered on a vario bar's zero line
+void display_climbRatePointerTriangle(uint8_t x, uint8_t centerY, uint8_t triSize);
 // print climb rate in negative color with +/- sign
 void display_climbRate(uint8_t x, uint8_t y, const uint8_t* font, int16_t displayClimbRate);
 // print climb rate in negative color without +/- sign, and adjust font size to fit in small box
