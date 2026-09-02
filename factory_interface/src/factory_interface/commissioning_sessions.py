@@ -246,6 +246,14 @@ def sd_preparation_details(payload: dict) -> str:
     return f"stage={stage}; mount attempts={attempts}; ESP error={error}"
 
 
+def normalize_sd_format_result(payload: dict) -> dict:
+    """Recognize firmware results where formatting succeeded before cleanup failed."""
+    result = dict(payload)
+    if result.get("stage") == "temporary_unmount":
+        result["formatted"] = True
+    return result
+
+
 async def prepare_session_sd_card(session: CommissioningSession) -> None:
     task = session.tasks["prepare_sd_card"]
     if not session.preflight.get("force_format_sd_card", False):
@@ -255,11 +263,13 @@ async def prepare_session_sd_card(session: CommissioningSession) -> None:
 
     task.update({"status": "running", "details": "Formatting SD card..."})
     session.touch()
-    payload = await asyncio.to_thread(
-        post_json,
-        f"{device_base_url(session)}/sd-card/format",
-        {},
-        timeout=SD_FORMAT_HTTP_TIMEOUT_SECONDS,
+    payload = normalize_sd_format_result(
+        await asyncio.to_thread(
+            post_json,
+            f"{device_base_url(session)}/sd-card/format",
+            {},
+            timeout=SD_FORMAT_HTTP_TIMEOUT_SECONDS,
+        )
     )
     task["result"] = payload
     details = sd_preparation_details(payload)
@@ -268,7 +278,14 @@ async def prepare_session_sd_card(session: CommissioningSession) -> None:
             f"SD card format failed ({details})."
         )
     if not payload.get("mounted", False):
-        raise RuntimeError(f"SD card formatted but did not remount ({details}).")
+        if payload.get("stage") == "temporary_unmount":
+            raise RuntimeError(
+                "SD card formatted, but formatter cleanup failed. "
+                f"Restart Leaf to verify the formatted card ({details})."
+            )
+        raise RuntimeError(
+            f"SD card formatted but did not remount; restart Leaf to verify it ({details})."
+        )
     if not payload.get("label_set", False):
         raise RuntimeError(f"SD card remounted but its label could not be set ({details}).")
 
