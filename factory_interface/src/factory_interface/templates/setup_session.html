@@ -104,7 +104,7 @@
       <span>Verification tests</span>
       <div class="checklist-details-group" id="self-test-details-group" hidden>
         <div class="checklist-details verification-test-details" id="self-test-details"></div>
-        <button class="task-retry-button" id="retry-self-test" type="button" hidden>Restart self tests</button>
+        <button class="task-retry-button" id="retry-self-test" type="button" hidden>Retry all self tests</button>
       </div>
     </div>
 
@@ -246,7 +246,12 @@
         const item = document.createElement("span");
         const normalizedStatus = String(status || "unknown").toLowerCase();
         item.className = `verification-result verification-result-${normalizedStatus}`;
-        item.textContent = `${formatTestName(name)}: ${normalizedStatus}`;
+        let statusText = formatTestName(normalizedStatus);
+        if (name === "gps_fix" && normalizedStatus === "running") {
+          const satellites = Number(result.gps_satellites || 0);
+          statusText += `: ${satellites} sats`;
+        }
+        item.textContent = `${formatTestName(name)}: ${statusText}`;
         list.appendChild(item);
       });
       element.appendChild(list);

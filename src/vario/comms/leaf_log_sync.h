@@ -60,6 +60,7 @@ class LeafLogSync {
   bool wifiAttemptStarted_ = false;
   bool timeStarted_ = false;
   bool resumedAfterEject_ = false;
+  bool massStorageSuppressedForChargingSession_ = false;
   bool sessionTotalKnown_ = false;
   uint16_t completedCount_ = 0;
   uint16_t sessionTotalCount_ = 0;

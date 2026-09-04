@@ -59,7 +59,7 @@
 // This allows us to cover all time zones, including the :30 minute and :15 minute ones
 #define DEF_TIME_ZONE -420    // -420 min = UTC -7 hrs (PDT)
 #define DEF_VOLUME_SYSTEM 2   // 0=off, 1=low, 2=med, 3=high
-#define DEF_AUTO_OFF 10       // 0 = DISABLE, or 1, 5 10, 15, 30, 45, 60 minutes
+#define DEF_AUTO_OFF 15       // 0 = DISABLE, or 1, 5, 10, 15, 30, 45, 60 minutes
 #define AUTO_OFF_MAX 60       // max auto-off time in minutes (1 hour)
 #define DEF_WIFI_ON 0         // default wifi off
 #define DEF_BLUETOOTH_ON 0    // default bluetooth off

@@ -164,7 +164,12 @@ void Power::initPeripherals() {
   // The SD LUN starts absent in every power state. Charging mode runs Leaf Log first and explicitly
   // presents the card; operating mode retains exclusive firmware ownership.
   sdcard.init(true);
-  if (info_.onState == PowerState::On) leaf_usb::disconnect();
+  if (info_.onState == PowerState::On) {
+    leafLogSync.prepareForOperating();
+    leaf_usb::disconnect();
+  } else {
+    leafLogSync.prepareForCharging();
+  }
   heap_monitor::checkpoint("periph-sd");
   Serial.println(" - Finished SDcard");
   lc86g.init();

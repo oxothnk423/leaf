@@ -1,5 +1,7 @@
 #include "storage/sd_card.h"
 
+#include <cstring>
+
 #include <Arduino.h>
 #include <FS.h>
 #include <SD_MMC.h>
@@ -450,7 +452,7 @@ bool SDCard::format() {
   return result.formatted && result.mounted;
 }
 
-SDCard::FormatResult SDCard::formatDetailed() {
+SDCard::FormatResult SDCard::formatDetailed(bool remount) {
   FormatResult result;
   if (!isCardPresent()) {
     if (DEBUG_SDCARD) Serial.println("SDcard Format Failed: no card present");
@@ -480,13 +482,23 @@ SDCard::FormatResult SDCard::formatDetailed() {
   if (DEBUG_SDCARD) Serial.println("Formatting SDcard");
 
   if (!formatUnmounted(result.error, result.stage)) {
-    // The format may have failed before changing the card. Attempt to restore normal access.
+    // Formatting is already complete if only the temporary formatter mount failed to unmount.
+    // Preserve that fact so commissioning can reboot and verify instead of formatting twice.
+    result.formatted = strcmp(result.stage, "temporary_unmount") == 0;
+    if (result.formatted && !remount) return result;
+    // Attempt to restore normal access. Commissioning will reboot after a completed format even
+    // when this in-process remount succeeds.
     mounted_ = mountWithRetries(result.mountAttempts);
     result.mounted = mounted_;
     return result;
   }
 
   result.formatted = true;
+  if (!remount) {
+    result.stage = "restart";
+    result.error = ESP_OK;
+    return result;
+  }
   result.stage = "remount";
   mounted_ = mountWithRetries(result.mountAttempts);
   result.mounted = mounted_;

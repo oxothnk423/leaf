@@ -99,13 +99,36 @@ class CommissioningSession:
     def touch(self) -> None:
         self.updated_at = datetime.now()
 
+    def progress_details(self) -> str:
+        if self.status != "running":
+            return self.details
+
+        stage_names = {
+            "prepare_sd_card": "Preparing SD card",
+            "firmware_version": "Reading firmware version",
+            "interactive_self_test": "Running self tests",
+            "retrieve_test_details": "Retrieving self-test details",
+            "fanet_id": "Assigning FANET ID",
+            "persist_results": "Writing commissioning log",
+            "clear_self_test_results": "Clearing self-test results",
+            "notify_commissioning_complete": "Finishing commissioning",
+        }
+        for name, stage_name in stage_names.items():
+            task = self.tasks.get(name, {})
+            if task.get("status") != "running":
+                continue
+            if name == "interactive_self_test":
+                return self_test_progress(task.get("result", {}))
+            return stage_name
+        return self.details
+
     def snapshot(self) -> dict:
         return {
             "mac_address": self.mac_address,
             "operator": self.operator,
             "notes": self.notes,
             "status": self.status,
-            "details": self.details,
+            "details": self.progress_details(),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "device": self.device.snapshot(),
@@ -277,6 +300,20 @@ async def prepare_session_sd_card(session: CommissioningSession) -> None:
         raise RuntimeError(
             f"SD card format failed ({details})."
         )
+    if payload.get("restart_required", False):
+        task.update(
+            {
+                "status": "running",
+                "details": "SD card formatted. Waiting for Leaf to restart and verify it...",
+            }
+        )
+        session.touch()
+        await asyncio.sleep(REBOOT_GRACE_SECONDS)
+        await wait_for_session_device(session)
+        await remount_session_sd_card(session)
+        task["details"] = "SD card formatted, Leaf restarted, and the card mounted successfully."
+        session.touch()
+        return
     if not payload.get("mounted", False):
         if payload.get("stage") == "temporary_unmount":
             raise RuntimeError(
@@ -434,6 +471,31 @@ def self_test_status(payload: dict) -> str | None:
     return None
 
 
+def self_test_progress(payload: dict) -> str:
+    results = payload.get("results") if isinstance(payload.get("results"), dict) else {}
+    test_names = {
+        "sd_card": "SD Card",
+        "baro": "Baro",
+        "imu": "IMU",
+        "gps_serial": "GPS Serial",
+        "ambient": "Ambient",
+        "display": "Display",
+        "power": "Power",
+        "vario": "Vario",
+        "buttons": "Buttons",
+        "speaker": "Speaker",
+        "gps_fix": "GPS Fix",
+    }
+    for name, display_name in test_names.items():
+        if str(results.get(name, "unknown")).lower() != "running":
+            continue
+        progress = f"Running self tests: {display_name}: Running"
+        if name == "gps_fix":
+            progress += f": {int(payload.get('gps_satellites', 0))} sats"
+        return progress
+    return "Running self tests"
+
+
 async def retrieve_session_self_test_details(session: CommissioningSession, base_url: str) -> str:
     self_test_details = await asyncio.to_thread(
         fetch_text,
@@ -447,11 +509,18 @@ async def retrieve_session_self_test_details(session: CommissioningSession, base
 
 
 async def notify_session_commissioning_complete(session: CommissioningSession) -> dict:
-    payload = await asyncio.to_thread(
-        fetch_json,
-        f"{device_base_url(session)}/commissioning/complete",
-        method="POST",
-    )
+    try:
+        payload = await asyncio.to_thread(
+            fetch_json,
+            f"{device_base_url(session)}/commissioning/complete",
+            method="POST",
+        )
+    except (OSError, URLError, TimeoutError):
+        # Leaf saves completion before replying. Reconcile that durable state if the reply is lost.
+        payload = await asyncio.to_thread(
+            fetch_json,
+            f"{device_base_url(session)}/commissioning/status",
+        )
     if not payload.get("commissioning_complete", False):
         raise RuntimeError("Device did not acknowledge commissioning completion.")
     return payload
@@ -708,6 +777,10 @@ async def run_commissioning_session(
                             f"Test details could not be retrieved: "
                             f"{type(details_exc).__name__}: {details_exc}"
                         )
+                    self_test_task["details"] += (
+                        "\n\nOne or more tests failed. Use Retry all self tests to run the "
+                        "verification sequence again."
+                    )
                     session.status = "failure"
                     session.details = "Verification tests failed."
                     return

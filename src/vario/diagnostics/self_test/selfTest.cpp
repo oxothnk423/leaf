@@ -40,6 +40,7 @@ uint32_t gpsFixStartMillis = 0;
 uint32_t gpsFixRemainingSeconds = GPS_FIX_TEST_TIMEOUT_MS / 1000;
 uint32_t gpsFixLastDisplayUpdateMillis = 0;
 bool gpsFixTestCancelled = false;
+bool varioMutedUntilRestart = false;
 SelfTest_PageGPSFix selfTest_pageGPSFix{&gpsFixRemainingSeconds, &gpsFixTestCancelled};
 
 bool waitForVarioStartButton = false;
@@ -332,6 +333,8 @@ SelfTest::Status SelfTest::testGPSfix() {
     gpsFixStartMillis = millisNow;
     gpsFixLastDisplayUpdateMillis = 0;
     gpsFixRemainingSeconds = GPS_FIX_TEST_TIMEOUT_MS / 1000;
+    speaker.setVolume(Speaker::SoundChannel::Vario, SpeakerVolume::Off);
+    varioMutedUntilRestart = true;
     selfTest_pageGPSFix.show();
     display.update();
   }
@@ -645,7 +648,9 @@ SelfTest::Status SpeakerInteractiveTest::update() {
     Serial.println("* SELF TEST * SPEAKER * Test complete");
 
     // return volume to user setting and cancel any sounds playing
-    speaker.setVolume(Speaker::SoundChannel::Vario, (SpeakerVolume)settings.vario_volume);
+    if (!varioMutedUntilRestart) {
+      speaker.setVolume(Speaker::SoundChannel::Vario, (SpeakerVolume)settings.vario_volume);
+    }
     speaker.setVolume(Speaker::SoundChannel::FX, (SpeakerVolume)settings.system_volume);
     speaker.playSound(fx::silence);
 
@@ -699,6 +704,9 @@ SelfTest_PageCommissioningConfirmation selfTest_pageCommissioningConfirmation;
 bool SelfTest::update() {
   bool updateNeeded = true;  // assume we'll need to call this again
   if (status == Status::Running) {
+    // Keep user-configured Auto-Off from interrupting long commissioning tests. This does not
+    // disable low-battery or other safety shutdown behavior.
+    power.resetAutoOffCounter();
     if (statusAutoTests == Status::Running || statusAutoTests == Status::Unknown) {
       statusAutoTests = runAutoTests(false);  // false = keep file open
     } else if (statusInteractiveTests == Status::Running ||

@@ -23,6 +23,7 @@
 #include "diagnostics/memory_report.h"
 #include "diagnostics/self_test/selfTest.h"
 #include "etl/string_stream.h"
+#include "instruments/gps.h"
 #include "logbook/logbook_store.h"
 #include "navigation/gpx.h"
 #include "navigation/route_store.h"
@@ -472,7 +473,9 @@ namespace {
     json += interactive_self_test_pending ? "true" : "false";
     json += ",\"mode\":\"";
     json += selfTestModeName(last_self_test_mode);
-    json += "\",\"status\":\"";
+    json += "\",\"gps_satellites\":";
+    json += static_cast<unsigned int>(gps.fixInfo.numberOfSats);
+    json += ",\"status\":\"";
     json += interactive_self_test_pending ? "pending"
             : running                     ? "running"
                                           : selfTestStatusName(selfTest.results.allTests);
@@ -2449,13 +2452,16 @@ load();
     clearSelfTestDetailsFiles(target);
   }
 
-  String sdCardFormatResultJson(const SDCard::FormatResult& result, bool labelSet) {
+  String sdCardFormatResultJson(const SDCard::FormatResult& result, bool labelSet,
+                                bool restartRequired = false) {
     String json = "{\"formatted\":";
     json += result.formatted ? "true" : "false";
     json += ",\"mounted\":";
     json += result.mounted ? "true" : "false";
     json += ",\"label_set\":";
     json += labelSet ? "true" : "false";
+    json += ",\"restart_required\":";
+    json += restartRequired ? "true" : "false";
     json += ",\"stage\":\"";
     json += result.stage;
     json += "\",\"mount_attempts\":";
@@ -2481,9 +2487,18 @@ load();
       return;
     }
 
-    const SDCard::FormatResult result = sdcard.formatDetailed();
+    // Commissioning verifies the filesystem after a clean restart, avoiding the fragile and slow
+    // in-process remount path.
+    const SDCard::FormatResult result = sdcard.formatDetailed(false);
     const bool labelSet = result.mounted && sdcard.setLabel();
-    target.send(200, "application/json", sdCardFormatResultJson(result, labelSet));
+    const bool restartRequired = result.formatted;
+    target.send(200, "application/json", sdCardFormatResultJson(result, labelSet, restartRequired));
+    if (restartRequired) {
+      // A clean boot is the reliable ownership/mount boundary after formatting. Send the result
+      // first so the factory tool can immediately wait for reconnect and verify the card.
+      delay(250);
+      ESP.restart();
+    }
   }
 
   void remountCommissioningSdCard(WebServer& target) {
@@ -2507,13 +2522,40 @@ load();
     ESP.restart();
   }
 
+  void sendCommissioningStatus(WebServer& target) {
+    if (!connectedToDiagnosticWifi()) {
+      target.send(403, "application/json",
+                  "{\"detail\":\"Commissioning status is only available on the "
+                  "LeafDiagnostics network.\"}");
+      return;
+    }
+
+    String json = "{\"commissioning_complete\":";
+    json += settings.commissioningComplete ? "true" : "false";
+    json += ",\"commissioning_pending\":";
+    json += settings.commissioningPending ? "true" : "false";
+    json += "}";
+    target.send(200, "application/json", json);
+  }
+
   void markCommissioningComplete(WebServer& target) {
-    if (!requireCommissioningHttp(target)) return;
+    if (!connectedToDiagnosticWifi()) {
+      target.send(403, "application/json",
+                  "{\"detail\":\"Commissioning endpoints are only available on the "
+                  "LeafDiagnostics network.\"}");
+      return;
+    }
+
+    // A lost HTTP response must be recoverable after the durable completion flag disables the
+    // other commissioning endpoints.
+    if (settings.commissioningComplete) {
+      sendCommissioningStatus(target);
+      return;
+    }
 
     settings.markCommissioningComplete();
     selfTest.confirmCommissioningComplete();
-    target.send(200, "application/json",
-                "{\"commissioning_complete\":true,\"commissioning_pending\":false}");
+    sendCommissioningStatus(target);
   }
 
   void configureCommissioningRoutes() {
@@ -2537,6 +2579,8 @@ load();
     user_server.on("/sd-card/remount", HTTP_POST,
                    []() { remountCommissioningSdCard(user_server); });
     user_server.on("/restart", HTTP_POST, []() { restartCommissioningDevice(user_server); });
+    user_server.on("/commissioning/status", HTTP_GET,
+                   []() { sendCommissioningStatus(user_server); });
     user_server.on("/commissioning/complete", HTTP_POST,
                    []() { markCommissioningComplete(user_server); });
 
@@ -2562,6 +2606,8 @@ load();
                    []() { clearCommissioningSelfTestResults(user_server); });
     user_server.on("/api/debug/self-test", HTTP_GET,
                    []() { sendCommissioningSelfTest(user_server); });
+    user_server.on("/api/debug/commissioning/status", HTTP_GET,
+                   []() { sendCommissioningStatus(user_server); });
     user_server.on("/api/debug/commissioning/complete", HTTP_POST,
                    []() { markCommissioningComplete(user_server); });
 
