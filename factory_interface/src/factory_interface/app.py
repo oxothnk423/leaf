@@ -212,7 +212,7 @@ def commissioning_session_summaries() -> list[dict]:
                 "label": session.mac_address,
                 "url": f"/setup/{session.mac_address}",
                 "status": session.status,
-                "details": session.details,
+                "details": session.progress_details(),
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
             }

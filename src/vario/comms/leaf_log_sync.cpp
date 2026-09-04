@@ -43,6 +43,13 @@ void LeafLogSync::beginEligibilityScan() {
 }
 
 void LeafLogSync::update() {
+  if (massStorageSuppressedForChargingSession_) {
+    // Commissioning owns the card for diagnostics and test results. Keep this decision latched for
+    // the charging session so completing commissioning does not expose the drive mid-workflow.
+    sdcard.keepMassStorageEjected();
+    return;
+  }
+
   if (state_ == State::Idle) {
     if (sdcard.takeExplicitEject())
       beginSession(true);
@@ -226,6 +233,7 @@ void LeafLogSync::prepareForCharging() {
   powerOnReady_.store(false, std::memory_order_release);
   centerIntentStartedMs_ = 0;
   resumedAfterEject_ = false;
+  massStorageSuppressedForChargingSession_ = settings.commissioningPending;
   state_ = State::Idle;
 }
 
@@ -236,6 +244,7 @@ void LeafLogSync::prepareForOperating() {
   powerOnRequested_.store(false, std::memory_order_release);
   centerIntentStartedMs_ = 0;
   resumedAfterEject_ = false;
+  massStorageSuppressedForChargingSession_ = false;
   state_ = State::Idle;
 }
 

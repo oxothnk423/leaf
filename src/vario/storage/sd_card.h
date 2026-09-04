@@ -30,7 +30,7 @@ class SDCard {
   bool mount();
   void unmount();
   bool format();
-  FormatResult formatDetailed();
+  FormatResult formatDetailed(bool remount = true);
   FormatResult remountAfterFormat();
   bool setLabel();
   bool isMounted() { return mounted_; }
