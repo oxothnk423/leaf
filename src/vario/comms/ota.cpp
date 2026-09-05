@@ -53,6 +53,32 @@ namespace {
     return String(releaseTag);
   }
 
+  String readReleaseTagVersion(Stream& response) {
+    // tag_name is near the start of GitHub's release object. Stop reading as soon as its value is
+    // available instead of scanning the large release body and expanded asset records.
+    if (!response.find("\"tag_name\"")) throw std::runtime_error("GitHub tag not found.");
+    if (!response.find(":")) throw std::runtime_error("GitHub tag invalid.");
+
+    char c = '\0';
+    do {
+      if (response.readBytes(&c, 1) != 1) throw std::runtime_error("GitHub tag incomplete.");
+    } while (c == ' ' || c == '\t' || c == '\r' || c == '\n');
+
+    if (c != '"') throw std::runtime_error("GitHub tag invalid.");
+
+    constexpr size_t TAG_LENGTH = 48;
+    char releaseTag[TAG_LENGTH];
+    size_t length = 0;
+    while (true) {
+      if (response.readBytes(&c, 1) != 1) throw std::runtime_error("GitHub tag incomplete.");
+      if (c == '"') break;
+      if (c == '\\' || length + 1 >= TAG_LENGTH) throw std::runtime_error("GitHub tag invalid.");
+      releaseTag[length++] = c;
+    }
+    releaseTag[length] = '\0';
+    return tagVersionFromReleaseTag(releaseTag);
+  }
+
   String getLatestReleaseTagVersion() {
     heap_monitor::checkpoint("ota-release-list-start");
     Serial.print("[OTA] Getting latest release list from ");
@@ -60,6 +86,9 @@ namespace {
 
     HTTPClient http;
     http.begin(LeafVersionInfo::otaReleasesApiUrl());
+    // GitHub normally uses chunked transfer encoding for HTTP/1.1 responses. ArduinoJson needs the
+    // decoded body, so request HTTP/1.0 before parsing the response stream directly.
+    http.useHTTP10(true);
     http.addHeader("Accept", "application/vnd.github+json");
     http.addHeader("User-Agent", "leaf-firmware-ota");
     http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
@@ -70,25 +99,11 @@ namespace {
     }
     heap_monitor::checkpoint("ota-release-list-http-ok");
 
-    String payload = http.getString();
-    heap_monitor::checkpoint("ota-release-list-payload");
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload);
-    if (error) {
-      heap_monitor::checkpoint("ota-release-list-json-fail");
-      throw std::runtime_error(
-          ((String) "GitHub releases JSON parse failed: " + error.c_str()).c_str());
-    }
-    heap_monitor::checkpoint("ota-release-list-json-ok");
-
-    JsonArrayConst releases = doc.as<JsonArrayConst>();
-    if (!releases.isNull() && releases.size() > 0) {
-      String tagVersion = tagVersionFromReleaseTag(releases[0]["tag_name"]);
-      if (!tagVersion.isEmpty()) {
-        Serial.printf("[OTA] Latest release tag version is %s\n", tagVersion.c_str());
-        heap_monitor::checkpoint("ota-release-list-match");
-        return tagVersion;
-      }
+    String tagVersion = readReleaseTagVersion(http.getStream());
+    if (!tagVersion.isEmpty()) {
+      Serial.printf("[OTA] Latest release tag version is %s\n", tagVersion.c_str());
+      heap_monitor::checkpoint("ota-release-list-match");
+      return tagVersion;
     }
 
     heap_monitor::checkpoint("ota-release-list-no-match");
