@@ -1,0 +1,153 @@
+UTC 2026-10-25T00:27:06.335356+00:00 port=COM10 serial=34:CD:B0:36:F3:80
+SHA256 7b86b70f48898531d8bf3df23c59e81227db9e8729f1eda2bc2f54762327e235
+SDA GPIO42 -> board SDA; SCL GPIO41 -> board SCL; GPIO8/9 inputs, no pulls.
+
+=== LEAF I2C INPUT MONITOR ===
+GPIO42=SDA GPIO41=SCL; output drivers DISABLED; no automatic bus scans.
+i=pull-ups; p=pull-downs; f=no pulls; w=watch; r=active tests (remove grounding resistors)
+INPUT weak pull-ups            SDA=1 SCL=1
+t=16205 ms INPUT weak pull-ups            SDA=1 SCL=1
+HOST requested scan 1
+
+=== LEAF I2C PROBE BEGIN t=17064 ms ===
+Chip=ESP32-S3 eFuse-ID=80F336B0CD34 SDA=GPIO42 SCL=GPIO41 power-latch=GPIO48 HIGH
+USB-powered bench firmware. No radio, storage, settings or normal Leaf UI.
+GPIO readback cannot locate a broken trace or distinguish every hardware fault.
+
+--- Inputs only: external pulls, then weak internal bias ---
+No internal pulls              HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-ups         HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-downs       HIGH samples: SDA=128/128 SCL=128/128
+LOW even with pull-up: held-low line, unpowered device, leakage or short.
+Bias-dependent/unstable level: weak/missing pull-up or floating connection.
+HIGH with pull-down can be normal: external pull-ups are usually stronger.
+
+=== Electrical pass: external pull-ups only ===
+
+--- Bus clear: up to nine clock pulses, then STOP ---
+Before bus clear               SDA=1 SCL=1
+Bus-clear clocks=0, result=IDLE
+After bus clear                SDA=1 SCL=1
+
+--- Brief open-drain LOW pulses; minimum GPIO drive strength ---
+Pull SCL LOW, release SDA: SDA=1 SCL=0 (expected 1,0)
+Pull both LOW:            SDA=0 SCL=0 (expected 0,0)
+Release SCL, hold SDA:    SDA=0 SCL=1 (expected 0,1)
+Digital release observations: SCL=1 us SDA=1 us (coarse, not scope timing)
+After releasing both           SDA=1 SCL=1
+PASS: independent pull-low/release readback.
+
+--- I2C address-only scan at 10000 Hz ---
+ACK 0x20  I/O expander (3.2.7) (address match, not identity verification)
+ACK 0x38  AHT20 temperature/humidity (address match, not identity verification)
+ACK 0x77  MS5611 barometer (address match, not identity verification)
+Summary: ACK=3 NACK=109 other-errors=0
+  0x20 I/O expander (3.2.7)          ACK
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    ACK
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              ACK
+
+--- I2C address-only scan at 100000 Hz ---
+ACK 0x20  I/O expander (3.2.7) (address match, not identity verification)
+ACK 0x38  AHT20 temperature/humidity (address match, not identity verification)
+ACK 0x77  MS5611 barometer (address match, not identity verification)
+Summary: ACK=3 NACK=109 other-errors=0
+  0x20 I/O expander (3.2.7)          ACK
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    ACK
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              ACK
+
+--- I2C address-only scan at 400000 Hz ---
+ACK 0x20  I/O expander (3.2.7) (address match, not identity verification)
+ACK 0x38  AHT20 temperature/humidity (address match, not identity verification)
+ACK 0x77  MS5611 barometer (address match, not identity verification)
+Summary: ACK=3 NACK=109 other-errors=0
+  0x20 I/O expander (3.2.7)          ACK
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    ACK
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              ACK
+
+--- Independent GPIO software scan (~10 kHz, internal pull-ups) ---
+GPIO ACK 0x20 I/O expander (3.2.7)
+GPIO ACK 0x38 AHT20 temperature/humidity
+GPIO ACK 0x77 MS5611 barometer
+GPIO scan summary: ACK=3 NACK=109
+=== LEAF I2C PROBE END ===
+Input-only mode: GPIO42=SDA GPIO41=SCL; both output drivers DISABLED.
+INPUT weak pull-ups            SDA=1 SCL=1
+Commands: i=input pull-ups, p=input pull-downs, f=floating inputs, w=watch, ?=help
+t=17758 ms INPUT weak pull-ups            SDA=1 SCL=1
+t=18767 ms INPUT weak pull-ups            SDA=1 SCL=1
+HOST requested scan 2
+
+=== LEAF I2C PROBE BEGIN t=18777 ms ===
+Chip=ESP32-S3 eFuse-ID=80F336B0CD34 SDA=GPIO42 SCL=GPIO41 power-latch=GPIO48 HIGH
+USB-powered bench firmware. No radio, storage, settings or normal Leaf UI.
+GPIO readback cannot locate a broken trace or distinguish every hardware fault.
+
+--- Inputs only: external pulls, then weak internal bias ---
+No internal pulls              HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-ups         HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-downs       HIGH samples: SDA=128/128 SCL=128/128
+LOW even with pull-up: held-low line, unpowered device, leakage or short.
+Bias-dependent/unstable level: weak/missing pull-up or floating connection.
+HIGH with pull-down can be normal: external pull-ups are usually stronger.
+
+=== Electrical pass: external pull-ups only ===
+
+--- Bus clear: up to nine clock pulses, then STOP ---
+Before bus clear               SDA=1 SCL=1
+Bus-clear clocks=0, result=IDLE
+After bus clear                SDA=1 SCL=1
+
+--- Brief open-drain LOW pulses; minimum GPIO drive strength ---
+Pull SCL LOW, release SDA: SDA=1 SCL=0 (expected 1,0)
+Pull both LOW:            SDA=0 SCL=0 (expected 0,0)
+Release SCL, hold SDA:    SDA=0 SCL=1 (expected 0,1)
+Digital release observations: SCL=2 us SDA=2 us (coarse, not scope timing)
+After releasing both           SDA=1 SCL=1
+PASS: independent pull-low/release readback.
+
+--- I2C address-only scan at 10000 Hz ---
+ACK 0x20  I/O expander (3.2.7) (address match, not identity verification)
+ACK 0x38  AHT20 temperature/humidity (address match, not identity verification)
+ACK 0x77  MS5611 barometer (address match, not identity verification)
+Summary: ACK=3 NACK=109 other-errors=0
+  0x20 I/O expander (3.2.7)          ACK
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    ACK
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              ACK
+
+--- I2C address-only scan at 100000 Hz ---
+ACK 0x20  I/O expander (3.2.7) (address match, not identity verification)
+ACK 0x38  AHT20 temperature/humidity (address match, not identity verification)
+ACK 0x77  MS5611 barometer (address match, not identity verification)
+Summary: ACK=3 NACK=109 other-errors=0
+  0x20 I/O expander (3.2.7)          ACK
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    ACK
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              ACK
+
+--- I2C address-only scan at 400000 Hz ---
+ACK 0x20  I/O expander (3.2.7) (address match, not identity verification)
+ACK 0x38  AHT20 temperature/humidity (address match, not identity verification)
+ACK 0x77  MS5611 barometer (address match, not identity verification)
+Summary: ACK=3 NACK=109 other-errors=0
+  0x20 I/O expander (3.2.7)          ACK
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    ACK
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              ACK
+
+--- Independent GPIO software scan (~10 kHz, internal pull-ups) ---
+GPIO ACK 0x20 I/O expander (3.2.7)
+GPIO ACK 0x38 AHT20 temperature/humidity
+GPIO ACK 0x77 MS5611 barometer
+GPIO scan summary: ACK=3 NACK=109
+=== LEAF I2C PROBE END ===
+Capture complete: 2/2 diagnostic runs.

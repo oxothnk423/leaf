@@ -1,0 +1,133 @@
+Captured UTC: 2026-10-24T23:52:01.482378+00:00
+Port: COM10
+USB serial: 34:CD:B0:36:F3:80
+Firmware SHA256: 0e1b22f34412747c68d7ce5a43e455058d4fcbec21478d108733558bdc629467
+
+
+=== LEAF I2C PROBE BEGIN t=9604 ms ===
+Chip=ESP32-S3 eFuse-ID=80F336B0CD34 SDA=GPIO8 SCL=GPIO9 power-latch=GPIO48 HIGH
+USB-powered bench firmware. No radio, storage, settings or normal Leaf UI.
+GPIO readback cannot locate a broken trace or distinguish every hardware fault.
+
+--- Inputs only: external pulls, then weak internal bias ---
+No internal pulls              HIGH samples: SDA=0/128 SCL=0/128
+Weak internal pull-ups         HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-downs       HIGH samples: SDA=0/128 SCL=0/128
+LOW even with pull-up: held-low line, unpowered device, leakage or short.
+Bias-dependent/unstable level: weak/missing pull-up or floating connection.
+HIGH with pull-down can be normal: external pull-ups are usually stronger.
+
+=== Electrical pass: external pull-ups only ===
+
+--- Bus clear: up to nine clock pulses, then STOP ---
+Before bus clear               SDA=0 SCL=0
+FAIL: SCL stays LOW when released; clock-based recovery is impossible.
+Address scans skipped for this electrical pass.
+
+=== Electrical pass: weak internal pull-ups ENABLED ===
+
+--- Bus clear: up to nine clock pulses, then STOP ---
+Before bus clear               SDA=1 SCL=1
+Bus-clear clocks=0, result=IDLE
+After bus clear                SDA=1 SCL=1
+
+--- Brief open-drain LOW pulses; minimum GPIO drive strength ---
+Pull SCL LOW, release SDA: SDA=1 SCL=0 (expected 1,0)
+Pull both LOW:            SDA=0 SCL=0 (expected 0,0)
+Release SCL, hold SDA:    SDA=0 SCL=1 (expected 0,1)
+Digital release observations: SCL=2 us SDA=2 us (coarse, not scope timing)
+After releasing both           SDA=1 SCL=1
+PASS: independent pull-low/release readback.
+
+--- I2C address-only scan at 10000 Hz ---
+Summary: ACK=0 NACK=112 other-errors=0
+  0x20 I/O expander (3.2.7)          NO ACK observed
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    NO ACK observed
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              NO ACK observed
+
+--- I2C address-only scan at 100000 Hz ---
+Summary: ACK=0 NACK=112 other-errors=0
+  0x20 I/O expander (3.2.7)          NO ACK observed
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    NO ACK observed
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              NO ACK observed
+
+--- I2C address-only scan at 400000 Hz ---
+Summary: ACK=0 NACK=112 other-errors=0
+  0x20 I/O expander (3.2.7)          NO ACK observed
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    NO ACK observed
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              NO ACK observed
+
+--- Independent GPIO software scan (~10 kHz, internal pull-ups) ---
+GPIO scan summary: ACK=0 NACK=112
+=== LEAF I2C PROBE END ===
+Commands: r=repeat complete test, w=toggle passive line watch, ?=help
+
+=== LEAF I2C PROBE BEGIN t=10298 ms ===
+Chip=ESP32-S3 eFuse-ID=80F336B0CD34 SDA=GPIO8 SCL=GPIO9 power-latch=GPIO48 HIGH
+USB-powered bench firmware. No radio, storage, settings or normal Leaf UI.
+GPIO readback cannot locate a broken trace or distinguish every hardware fault.
+
+--- Inputs only: external pulls, then weak internal bias ---
+No internal pulls              HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-ups         HIGH samples: SDA=128/128 SCL=128/128
+Weak internal pull-downs       HIGH samples: SDA=0/128 SCL=0/128
+LOW even with pull-up: held-low line, unpowered device, leakage or short.
+Bias-dependent/unstable level: weak/missing pull-up or floating connection.
+HIGH with pull-down can be normal: external pull-ups are usually stronger.
+
+=== Electrical pass: external pull-ups only ===
+
+--- Bus clear: up to nine clock pulses, then STOP ---
+Before bus clear               SDA=0 SCL=0
+FAIL: SCL stays LOW when released; clock-based recovery is impossible.
+Address scans skipped for this electrical pass.
+
+=== Electrical pass: weak internal pull-ups ENABLED ===
+
+--- Bus clear: up to nine clock pulses, then STOP ---
+Before bus clear               SDA=1 SCL=1
+Bus-clear clocks=0, result=IDLE
+After bus clear                SDA=1 SCL=1
+
+--- Brief open-drain LOW pulses; minimum GPIO drive strength ---
+Pull SCL LOW, release SDA: SDA=1 SCL=0 (expected 1,0)
+Pull both LOW:            SDA=0 SCL=0 (expected 0,0)
+Release SCL, hold SDA:    SDA=0 SCL=1 (expected 0,1)
+Digital release observations: SCL=2 us SDA=2 us (coarse, not scope timing)
+After releasing both           SDA=1 SCL=1
+PASS: independent pull-low/release readback.
+
+--- I2C address-only scan at 10000 Hz ---
+Summary: ACK=0 NACK=112 other-errors=0
+  0x20 I/O expander (3.2.7)          NO ACK observed
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    NO ACK observed
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              NO ACK observed
+
+--- I2C address-only scan at 100000 Hz ---
+Summary: ACK=0 NACK=112 other-errors=0
+  0x20 I/O expander (3.2.7)          NO ACK observed
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    NO ACK observed
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              NO ACK observed
+
+--- I2C address-only scan at 400000 Hz ---
+Summary: ACK=0 NACK=112 other-errors=0
+  0x20 I/O expander (3.2.7)          NO ACK observed
+  0x26 I/O expander (3.2.6)          NO ACK observed
+  0x38 AHT20 temperature/humidity    NO ACK observed
+  0x68 ICM20948 IMU                  NO ACK observed
+  0x77 MS5611 barometer              NO ACK observed
+
+--- Independent GPIO software scan (~10 kHz, internal pull-ups) ---
+GPIO scan summary: ACK=0 NACK=112
+=== LEAF I2C PROBE END ===
+Commands: r=repeat complete test, w=toggle passive line watch, ?=help
