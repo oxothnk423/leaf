@@ -118,6 +118,13 @@ TARGET  := $(BUILD)/leafsim
 all: $(TARGET)
 
 .PHONY: test-g-load
+.PHONY: test-baro-only
+$(BUILD)/baro_only_test: $(filter-out $(BUILD)/sim/emulator/main.o,$(OBJECTS)) $(SIM)/tests/baro_only.cpp
+	@$(CXX) $(CXXFLAGS) -o $@ $(SIM)/tests/baro_only.cpp $(filter-out $(BUILD)/sim/emulator/main.o,$(OBJECTS)) $(LDFLAGS)
+
+test-baro-only: $(BUILD)/baro_only_test
+	@cd $(ROOT) && $(BUILD)/baro_only_test
+
 $(BUILD)/g_load_tracker_test: $(SIM)/tests/g_load_tracker.cpp $(ROOT)/src/vario/instruments/g_load_tracker.h
 	@mkdir -p $(BUILD)
 	@$(CXX) -std=c++17 -Wall -Wextra -g -I$(ROOT)/src/vario $< -o $@

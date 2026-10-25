@@ -294,6 +294,7 @@ void IMU::processGravity(const MotionUpdate& m) {
 }
 
 void IMU::on_receive(const MotionUpdate& msg) {
+  if (barometerOnly_) return;
   motionSampleCount_++;
   if (msg.clippedSinceLastUpdate) gLoad_.recordClipping();
   if (msg.reset) {
@@ -394,6 +395,28 @@ void IMU::on_receive(const MotionUpdate& msg) {
   }
 }
 
+void IMU::useBarometerOnly() {
+  barometerOnly_ = true;
+  wake();
+}
+
+void IMU::updateBarometerOnly(uint32_t pressureTime) {
+  if (!barometerOnly_ || !baro.pressureFresh()) return;
+  if (kalmanvert_.initialized()) {
+    const int32_t dt = static_cast<int32_t>(pressureTime - lastPressureTime_);
+    if (dt <= 0) return;
+    if (dt > 250) wake();
+  }
+  if (kalmanvert_.initialized())
+    kalmanTime_ += uint32_t(pressureTime - lastPressureTime_) * .001;
+  else
+    kalmanTime_ = 0;
+  lastPressureTime_ = pressureTime;
+  kalmanvert_.update(kalmanTime_, baro.altF(), 0);
+  ++kalmanUpdateSampleCount_;
+  if (kalmanStartupSamplesRemaining_) --kalmanStartupSamplesRemaining_;
+}
+
 void IMU::wake() {
   gLoad_.resetFilter();
   kalmanvert_.reset();
@@ -420,9 +443,10 @@ float IMU::getAccel() {
 }
 
 bool IMU::velocityValid() {
-  return accelValid() && baro.pressureFresh() && kalmanvert_.initialized() &&
+  return (barometerOnly_ || accelValid()) && baro.pressureFresh() && kalmanvert_.initialized() &&
          kalmanStartupSamplesRemaining_ == 0 &&
-         (startupNonVertSamples_ >= STARTUP_NON_VERT_SAMPLES || startupReadinessTimedOut());
+         (barometerOnly_ || startupNonVertSamples_ >= STARTUP_NON_VERT_SAMPLES ||
+          startupReadinessTimedOut());
 }
 
 float IMU::getVelocity() {
@@ -521,6 +545,7 @@ bool IMU::startupReadinessTimedOut() const {
 
 uint16_t IMU::startupSamplesCompleted() const {
   uint16_t kalmanCompleted = KALMAN_STARTUP_REPORT_SAMPLES - kalmanStartupSamplesRemaining_;
+  if (barometerOnly_) return kalmanCompleted;
   if (kalmanStartupSamplesRemaining_ == 0 && startupReadinessTimedOut()) {
     return KALMAN_STARTUP_REPORT_SAMPLES;
   }

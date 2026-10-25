@@ -38,6 +38,7 @@ class ICM20948 : public IPollable, IMessageSource {
  private:
   ICM_20948_I2C IMU_;
   etl::imessage_bus* bus_;
+  bool initialized_ = false;
   uint32_t motionFifoPacketCount_ = 0;
   uint32_t motionMatchedPacketCount_ = 0;
   uint32_t motionMismatchedPacketCount_ = 0;

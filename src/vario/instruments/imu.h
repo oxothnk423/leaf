@@ -18,6 +18,11 @@ class IMU : public MessageSink<IMU, MotionUpdate>, public IMessageSource {
 
   void wake();
 
+  // Reuse the vertical filter with pressure and zero acceleration when IMU initialization fails.
+  // This mode lasts until reboot; acceleration and g-load remain unavailable.
+  void useBarometerOnly();
+  void updateBarometerOnly(uint32_t pressureTime);
+
   // MessageSink<IMU, MotionUpdate>
   void on_receive(const MotionUpdate& msg);
   void on_receive_unknown(const etl::imessage& msg) {}
@@ -87,6 +92,7 @@ class IMU : public MessageSink<IMU, MotionUpdate>, public IMessageSource {
 
   // Kalman filter object for vertical climb rate and position
   KalmanFilterPA kalmanvert_;
+  bool barometerOnly_ = false;
   FlatAccelerationBias flatBiasReference_;
 
   uint16_t kalmanStartupSamplesRemaining_;

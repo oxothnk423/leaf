@@ -9,6 +9,7 @@
 #include "hardware/icm_20948.h"
 
 #include "dispatch/message_types.h"
+#include "instruments/imu.h"
 
 #define DEBUG_IMU 0
 
@@ -35,26 +36,34 @@ namespace {
 }  // namespace
 
 void ICM20948::init() {
+  initialized_ = false;
   WIRE_PORT.begin();
   WIRE_PORT.setClock(400000);
 
   if (DEBUG_IMU) IMU_.enableDebugging();  // enable helpful debug messages on Serial
 
-  // TODO: Abort initialization attempt after some amount of time and show a fatal error
-  bool initialized = false;
-  while (!initialized) {
+  // A missing IMU must not prevent the rest of the instrument from booting.
+  for (uint8_t attempt = 0; attempt < 3; ++attempt) {
     IMU_.begin(WIRE_PORT, AD0_VAL);
     SERIAL_PORT.print(F("Initialization of the IMU returned: "));
     SERIAL_PORT.println(IMU_.statusString());
     if (IMU_.status != ICM_20948_Stat_Ok) {
-      SERIAL_PORT.println("Trying again...");
-      delay(500);
+      if (attempt < 2) {
+        SERIAL_PORT.println("Trying again...");
+        delay(500);
+      }
     } else {
-      initialized = true;
+      initialized_ = true;
+      break;
     }
   }
 
-  // TODO: Trigger a fatal error if configuration fails
+  if (!initialized_) {
+    publishComment(bus_, "ICM20948 unavailable; using barometer-only vario");
+    imu.useBarometerOnly();
+    return;
+  }
+
   bool success = true;  // Use success to show if the DMP configuration was successful
 
   // Initialize the DMP. initializeDMP is a weak function. You can overwrite it if you want to e.g.
@@ -85,12 +94,15 @@ void ICM20948::init() {
   if (success) {
     SERIAL_PORT.println(F("DMP enabled!"));
   } else {
-    SERIAL_PORT.println(F("Enable DMP failed!"));
+    initialized_ = false;
+    publishComment(bus_, "ICM20948 DMP configuration failed; using barometer-only vario");
+    imu.useBarometerOnly();
   }
 }
 
 void ICM20948::update() {
   imuUpdateCallCount_++;
+  if (!initialized_) return;
   etl::imessage_bus* bus = bus_;
   MotionUpdate latest(millis());
   bool moreData = false;

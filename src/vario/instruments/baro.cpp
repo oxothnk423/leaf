@@ -342,6 +342,7 @@ uint16_t Barometer::startupSamplesCompleted() const {
 uint16_t Barometer::startupSamplesRequired() const { return BARO_STARTUP_DISCARD_SAMPLES; }
 
 void Barometer::filterAltitude() {
+  imu.updateBarometerOnly(lastPressureTime_);
   // Filter Pressure and calculate Final Altitude Values
   // Note, IMU will have taken an accel reading and updated the Kalman
 
@@ -443,14 +444,14 @@ void Barometer::filterClimb() {
           "%.6f,%.6f,%.6f,%u,%.6f,%.6f,%.6f,%.6f,%ld,%.6f,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%"
           "lu\n",
           static_cast<unsigned long>(millis()), static_cast<unsigned long>(imu.lastMotionTime()),
-          static_cast<long>(pressure_), altF(), static_cast<long>(altAdjusted()), imu.getAccel(),
-          imu.lastDeviceAccelX(), imu.lastDeviceAccelY(), imu.lastDeviceAccelZ(), imu.lastQuatX(),
-          imu.lastQuatY(), imu.lastQuatZ(), imu.lastWorldAccelX(), imu.lastWorldAccelY(),
-          imu.lastWorldVerticalAccel(), imu.gravityEstimate(), imu.verticalAccel(),
-          imu.kalmanAccelInput(), imu.kalmanValid() ? 1 : 0, imu.kalmanPosition(),
-          imu.kalmanVelocity(), imu.kalmanAcceleration(), climbRateRaw_,
-          static_cast<long>(climbRateFiltered_), climbRateAverage_,
-          static_cast<unsigned long>(imu.gravityUpdateCandidateCount()),
+          static_cast<long>(pressure_), altF(), static_cast<long>(altAdjusted()),
+          imu.accelValid() ? imu.getAccel() : NAN, imu.lastDeviceAccelX(), imu.lastDeviceAccelY(),
+          imu.lastDeviceAccelZ(), imu.lastQuatX(), imu.lastQuatY(), imu.lastQuatZ(),
+          imu.lastWorldAccelX(), imu.lastWorldAccelY(), imu.lastWorldVerticalAccel(),
+          imu.gravityEstimate(), imu.verticalAccel(), imu.kalmanAccelInput(),
+          imu.kalmanValid() ? 1 : 0, imu.kalmanPosition(), imu.kalmanVelocity(),
+          imu.kalmanAcceleration(), climbRateRaw_, static_cast<long>(climbRateFiltered_),
+          climbRateAverage_, static_cast<unsigned long>(imu.gravityUpdateCandidateCount()),
           static_cast<unsigned long>(imu.gravityUpdateAcceptedCount()),
           static_cast<unsigned long>(imu.gravityUpdateRejectedAccelCount()),
           static_cast<unsigned long>(imu.gravityUpdateRejectedVerticalCount()),
